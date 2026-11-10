@@ -1,0 +1,12 @@
+/bin/
+/build/
+/cmake-build-*/
+/CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+*.o
+*.gch
+*.dSYM/
+.DS_Store

@@ -1,0 +1,55 @@
+#define SLIMR_TEST_MAIN
+#include "slimr/test.hpp"
+#include "slimr/json.hpp"
+
+using namespace slimr;
+
+TEST_SUITE("slimr::json") {
+    TEST_CASE("Basic JSON reading and writing") {
+        Json j = Json::object_t{};
+        j["hello"] = "world";
+        j["num"] = 123;
+        std::string s = slimr::write_json(j);
+        CHECK(s.find("\"hello\":\"world\"") != std::string::npos);
+
+        auto parsed = parse_json<Json>(s);
+        CHECK(parsed.has_value());
+        CHECK((*parsed)["hello"].get<std::string>() == "world");
+        CHECK((*parsed)["num"].get<int64_t>() == 123);
+    }
+
+    TEST_CASE("json_obj and json_arr helpers") {
+        auto obj = json_obj({{"key", "val"}});
+        CHECK(obj.is_object());
+        CHECK(obj["key"].get<std::string>() == "val");
+
+        auto arr = json_arr({1, 2, 3});
+        CHECK(arr.is_array());
+        CHECK(arr.get<Json::array_t>().size() == 3);
+    }
+
+    TEST_CASE("64-bit integer precision") {
+        int64_t large_val = 9007199254740993LL; // Beyond 53-bit IEEE double precision
+        Json j = Json::object_t{};
+        j["large"] = large_val;
+        std::string s = to_json(j);
+
+        auto parsed = parse_json<Json>(s);
+        CHECK(parsed.has_value());
+        CHECK((*parsed)["large"].get<int64_t>() == large_val);
+    }
+
+    TEST_CASE("Pretty printing") {
+        Json j = Json::object_t{};
+        j["key"] = "value";
+        std::string pretty = write_json_pretty(j);
+        CHECK(pretty.find("\n") != std::string::npos);
+        CHECK(pretty.find("  \"key\": \"value\"") != std::string::npos);
+    }
+
+    TEST_CASE("Invalid JSON error handling") {
+        auto parsed = parse_json<Json>("{ invalid json ");
+        CHECK(!parsed.has_value());
+        CHECK(!parsed.error().empty());
+    }
+}
