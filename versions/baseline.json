@@ -1,0 +1,56 @@
+{
+  "default": {
+    "slimr-bugsink": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-curl": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-encoding": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-json": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-mcp": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-proc": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-reflect": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-sqlite": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-test": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-text": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-time": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-ws": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    },
+    "slimr-yaml": {
+      "baseline": "0.1.1",
+      "port-version": 0
+    }
+  }
+}
