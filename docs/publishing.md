@@ -2,7 +2,7 @@
 
 The thirteen flat `packages/<key>/` trees are independently consumable vcpkg overlay ports. Each contains its manifest, header, CMake config, ISC license, and any owned vendor files. Original code is ISC; bundled upstream notices remain in the distributed vendor headers/licenses.
 
-**No versioned private registry has been published.** The root publisher is implemented and tested with isolated Git repositories, but real release execution still requires explicit authorization. Clone-free consumption and switching back to a published baseline remain blocked until a real release is published and verified. Do not invent a baseline.
+All thirteen packages are published at version `0.1.1` in the public Git registry, baseline `03ae9f4bbb05beedd08cb9cc4775c0f0a8c3344f`, using source commit `9587f5015b7997dea6bbdf02a2ab0c760388e6e8`. The release passed Debug, Release and lint checks before version writes. The real Brave history MCP resolved, built and passed tests using this baseline with local overlays disabled. See the [consumer configuration](../README.md#dependencies).
 
 ## One publishing entry point
 
@@ -46,7 +46,7 @@ node --test scripts/publish.test.mjs
 just --list
 ```
 
-The tests create disposable repositories and bare remotes under `scripts/`, stub package checks, and remove their fixtures. They do not prove the actual C++ checks pass or that a private registry is remotely consumable.
+The automation tests create disposable repositories and bare remotes under `scripts/`, stub package checks, and remove their fixtures. They are separate from the real package release and app-consumption checks recorded above.
 
 ## Local environment
 
@@ -59,7 +59,7 @@ export VCPKG_OVERLAY_PORTS="$VCPKG_ROOT/local-ports"
 
 The overlay must be separate from this source checkout, must not have symlinked ancestors, and must not be a vcpkg source/installed/cache directory. Local mode changes only selected overlay links: no checks, versions, registry metadata, commits, pushes, source discovery, installed headers or cache edits. Registry mode never changes local overrides. Keep generated build files out of port trees. Neither consumers nor this repo override the environment variables or search for checkouts.
 
-Overrides affect every consumer sharing the environment. After enabling/removing overrides or switching architectures, clean the consumer's generated build/install output and explicitly re-resolve dependencies. Normal edits while staying local use the automatic `deps` refresh, without cleaning or disabling the binary cache. Published-mode restoration cannot yet be verified without a real published baseline.
+Overrides affect every consumer sharing the environment. After enabling/removing overrides or switching architectures, use fresh consumer build/install output and explicitly re-resolve dependencies. Normal edits while staying local use the automatic `deps` refresh, without cleaning or disabling the binary cache. Published mode was verified with separate generated output so it did not disturb the local development install.
 
 ## Consumers
 
@@ -92,7 +92,7 @@ The intended normal consumer cycle is source edit → automatic `deps` prerequis
 copied port behind a named overlay symlink: editing only the header changed
 vcpkg's package ABI and observable compiled behavior without cleaning or disabling
 the binary cache. Broken/missing overrides must fail; they must not silently reuse
-installed stale snapshots. Switching between local and eventual published sources
+installed stale snapshots. Switching between local and published sources
 requires explicit re-resolution and verification.
 
 ## Library development
