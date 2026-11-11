@@ -195,11 +195,11 @@ Original code is [ISC](LICENSE). Vendored code keeps its upstream licenses.
 
 ## Native CI and Bounded Fuzzing
 
-PRs, main pushes and merge groups run publishing automation fixture tests plus `just test`, `just build` and `just lint` on Linux/macOS with Clang/libc++ 21. Configure `VCPKG_REF` as a tested full vcpkg commit SHA. No private slimr dependency checkout is needed for this repo. Workflow checks and branch protection still require actual remote verification.
+CI is temporarily disabled at the repository level by maintainer request, and required CI check gates have been removed. The last Linux/macOS matrix passed before this pause. The workflow configuration is retained for later use.
 
-The fuzz runtime gate remains unverified and is disabled in CI unless the repository variable `ENABLE_FUZZING` is explicitly set to `true`. Configuration and example commands are not a passing fuzz receipt.
+Fuzzing is separately paused: an earlier agent received a platform safety rejection (HTTP 422) while implementing it. The specific trigger is unknown; this was not a compiler or GitHub Actions failure. No fuzz execution or required fuzz gate has been verified, and `ENABLE_FUZZING` remains unset.
 
-On Linux with Clang 21/libc++ and vcpkg dependencies installed:
+Retained Linux configuration example, not a validated fuzzing receipt:
 
 ```sh
 just deps
@@ -220,11 +220,7 @@ for target in json yaml encoding; do
 done
 ```
 
-Use your host triplet and a Clang distribution with libFuzzer for other hosts.
-The verified Apple clang 21 build compiler lacks libFuzzer; use Homebrew LLVM in a
-separate Fuzz tree for macOS smoke checks. Fuzz flags are target-local and never
-exported. CI also lints `fuzz/*.cpp` using its Fuzz compilation database, caches
-corpora between commits, and uploads reproducer/corpus artifacts for seven days.
+Fuzz flags are target-local and never exported. The retained optional workflow steps configure fuzz-source linting, corpus caching and seven-day reproducer uploads; these fuzz steps remain unverified and disabled.
 
 ---
 
