@@ -1,0 +1,11 @@
+{
+  "name": "slimr-time",
+  "version": "0.1.0",
+  "description": "Header-only ISO-8601 and timezone utilities",
+  "features": {
+    "tests": {
+      "description": "Dependencies for the standalone test suite",
+      "dependencies": ["slimr-test"]
+    }
+  }
+}

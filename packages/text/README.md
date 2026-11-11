@@ -16,7 +16,7 @@ Borrowed directly from the design of [`@slimr/text`](https://www.npmjs.com/packa
 ## Quick Start
 
 ```cpp
-#include <slimr/text.hpp>
+#include <text.hpp>
 #include <iostream>
 
 using namespace slimr;
@@ -50,3 +50,14 @@ int main() {
 | `html_to_text` | `inline std::string html_to_text(std::string_view html, bool strip_links = false)` | Strips HTML tags, removes `<script>`/`<style>`, decodes entities, and formats plain text. |
 | `truncate` | `inline std::string truncate(std::string_view s, size_t max_len, std::string_view ellipsis = "...")` | Truncates string to `max_len` characters, appending `ellipsis` if truncated. |
 | `word_wrap` | `inline std::string word_wrap(std::string_view s, size_t max_width = 80)` | Word-wraps text to specified maximum line width. |
+
+## Build & Test
+
+This folder owns its header, `test.cpp`, CMake target/config, manifest, port recipe and licenses. See the [integration guide](../../README.md#integration-vcpkg--cmakeninja).
+
+```bash
+just test-pkg text  # From the repository root; automatic native deps + ASan/UBSan
+just build         # All optimized Release suites
+```
+
+Generated output stays under root `build/deps/` and `build/cmake/{Debug,Release}/`. Consumers link `slimr::text` from `find_package(slimr-text CONFIG REQUIRED)`. The optional manifest `tests` feature keeps test dependencies out of production consumption.

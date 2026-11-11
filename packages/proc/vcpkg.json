@@ -1,0 +1,11 @@
+{
+  "name": "slimr-proc",
+  "version": "0.1.0",
+  "description": "Header-only safe subprocess execution",
+  "features": {
+    "tests": {
+      "description": "Dependencies for the standalone test suite",
+      "dependencies": ["slimr-test"]
+    }
+  }
+}

@@ -21,7 +21,7 @@ Traditional CLI frameworks pull in thousands of lines of flag parsing (`--foo`, 
 
 ```cpp
 #pragma once
-#include <slimr/mcp.hpp>
+#include <mcp.hpp>
 
 struct GreetInput {
     slimr::Field<std::string, "Person to greet"> name;
@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
 ### 3. Multi-Plugin Gateway (`src/gateway.cpp`)
 
 ```cpp
-#include <slimr/mcp.hpp>
+#include <mcp.hpp>
 #include "../plugins/obsidian/src/app.hpp"
 #include "../plugins/personal-log/src/app.hpp"
 
@@ -101,3 +101,14 @@ int main(int argc, char** argv) {
 | Register MCP resource | `app.resources.push_back({.uri = ..., .name = ..., .load = ...})` |
 | Mount into gateway | `gw.mount("alias", make_plugin_app())` |
 | Run CLI or `mcp` server | `app.run(argc, argv)` / `gw.run(argc, argv)` |
+
+## Build & Test
+
+This folder owns its header, `test.cpp`, CMake target/config, manifest, port recipe and licenses. See the [integration guide](../../README.md#integration-vcpkg--cmakeninja).
+
+```bash
+just test-pkg mcp  # From the repository root; automatic native deps + ASan/UBSan
+just build        # All optimized Release suites
+```
+
+Generated output stays under root `build/deps/` and `build/cmake/{Debug,Release}/`. Consumers link `slimr::mcp` from `find_package(slimr-mcp CONFIG REQUIRED)`. The optional manifest `tests` feature keeps test dependencies out of production consumption.

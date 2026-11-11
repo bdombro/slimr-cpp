@@ -16,7 +16,7 @@ Borrowed directly from the design of [`@slimr/yaml`](https://www.npmjs.com/packa
 ## Quick Start
 
 ```cpp
-#include <slimr/yaml.hpp>
+#include <yaml.hpp>
 #include <iostream>
 
 using namespace slimr;
@@ -71,3 +71,14 @@ Hello world!
 | `to_yaml` | `template <typename T> inline std::string to_yaml(const T& val)` | Serializes a `slimr::Json` value or C++ struct `T` to a YAML string. |
 | `FrontmatterSplit` | `struct FrontmatterSplit { std::optional<Json> frontmatter; std::string raw_frontmatter; std::string body; };` | Result structure containing parsed frontmatter and markdown body. |
 | `parse_frontmatter` | `inline std::expected<FrontmatterSplit, std::string> parse_frontmatter(std::string_view markdown)` | Splits Markdown with `---` YAML frontmatter into `{ frontmatter, body }`. |
+
+## Build & Test
+
+This folder owns its header, `test.cpp`, CMake target/config, manifest, port recipe and licenses. See the [integration guide](../../README.md#integration-vcpkg--cmakeninja).
+
+```bash
+just test-pkg yaml  # From the repository root; automatic native deps + ASan/UBSan
+just build         # All optimized Release suites
+```
+
+Generated output stays under root `build/deps/` and `build/cmake/{Debug,Release}/`. Consumers link `slimr::yaml` from `find_package(slimr-yaml CONFIG REQUIRED)`. The optional manifest `tests` feature keeps test dependencies out of production consumption.

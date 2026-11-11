@@ -2,85 +2,105 @@
 
 `slimr-cpp` is a monorepo of 13 slim, header-only **C++26** libraries for building fast, zero-bloat Model Context Protocol (MCP) servers, narrow JSON CLIs, SQLite + FTS5 applications, and HTTP/WebSocket clients.
 
-Inspired by the ergonomics of TypeScript/Node [`@slimr`](https://github.com/bdombro/slimr) and `argsbarg`, `slimr-cpp` brings single-source-of-truth schema reflection, safe subprocess/socket primitives, and production SQLite defaults to native C++26 — compiling complete MCP servers into ~500 KB–1.3 MB binaries with `<2 ms` cold start and `~1.5 MB` RSS.
+Inspired by the ergonomics of TypeScript/Node [`@slimr`](https://github.com/bdombro/slimr) and [`argsbarg`](https://github.com/bdombro/argsbarg), `slimr-cpp` brings single-source-of-truth schema reflection, safe subprocess/socket primitives, and production SQLite defaults to native C++26, without a Node/V8 runtime. Binary size depends on the libraries used and whether native dependencies are linked statically.
 
 ---
 
 ## Packages
 
-| Package | Header | Target | Description |
+| Package | Header | vcpkg package | Description |
 | --- | --- | --- | --- |
-| [`slimr::json`](packages/json/README.md) | `<slimr/json.hpp>` | `slimr::json` | RFC-8259 UTF-8 JSON DOM (`slimr::Json` preserving 64-bit integer precision over [Glaze](https://github.com/stephenberry/glaze)), `parse_json<T>` (`std::expected`), `write_json`, `read_json`, and `json_obj` / `json_arr` builders without `std::initializer_list` traps. |
-| [`slimr::reflect`](packages/reflect/README.md) | `<slimr/reflect.hpp>` | `slimr::reflect` | Zero-macro C++26 compile-time struct reflection (`Field<T, "desc">`, `OptField<T, "desc">`, `ReqField<T, "desc">`) that maps C++ structs directly to strict MCP JSON Schemas (`additionalProperties: false`) and typed Glaze deserializers. |
-| [`slimr::yaml`](packages/yaml/README.md) | `<slimr/yaml.hpp>` | `slimr::yaml` | Arena-allocated YAML 1.2 parser and emitter (`parse_yaml<T>`, `to_yaml`) plus Markdown YAML frontmatter splitter (`parse_frontmatter`) over [RapidYAML](https://github.com/biojppm/rapidyaml). |
-| [`slimr::mcp`](packages/mcp/README.md) | `<slimr/mcp.hpp>` | `slimr::mcp` | `PluginApp` and multi-plugin `Gateway`: stdio NDJSON MCP server (`2025-11-25` / `2025-06-18` / `2024-11-05`) and narrow JSON CLI (`<bin> <tool> ['{"k":"v"}']`) sharing one deserializer, with resources (`mcp_resource_read`) and native `text`/`image`/`audio` content blocks. |
-| [`slimr::sqlite`](packages/sqlite/README.md) | `<slimr/sqlite.hpp>` | `slimr::sqlite` | RAII SQLite 3 + FTS5 wrapper (`slimr::Database`) with WAL defaults, a 256-statement LRU cache, positional & named parameters (`:k`, `$k`, `@k`), typed `get<T>`/`all<T>`/`pluck<T>`/`pluckAll<T>`, nested `SAVEPOINT` transactions, `PRAGMA user_version` migrations, `iterateLimited` (`readOnlyConnection` + `PRAGMA query_only = ON`), custom scalar functions, and online backup. |
-| [`slimr::curl`](packages/curl/README.md) | `<slimr/curl.hpp>` | `slimr::curl` | RAII HTTP/HTTPS client (`slimr::request`, `slimr::url_encode`) over `libcurl` with lowercased response headers, timeouts, custom HTTP methods, and Unix domain socket transport (`CURLOPT_UNIX_SOCKET_PATH`). |
-| [`slimr::ws`](packages/ws/README.md) | `<slimr/ws.hpp>` | `slimr::ws` | RAII WebSocket client (`connect`, `sendJson`, `recvJson`, `sendText`, `recvText`) over `libcurl` 8.7+ native WebSockets (`CURLOPT_CONNECT_ONLY = 2L`, `curl_ws_send`, `curl_ws_recv`). |
-| [`slimr::bugsink`](packages/bugsink/README.md) | `<slimr/bugsink.hpp>` | `slimr::bugsink` | Sentry v7 NDJSON envelope formatter and non-throwing error/warning reporter (`BugsinkReporter`) for self-hosted Bugsink or Sentry (`BUGSINK_DSN` override, `""` disables). |
-| [`slimr::encoding`](packages/encoding/README.md) | `<slimr/encoding.hpp>` | `slimr::encoding` | RFC 4648 Base64, Base64url (with optional `=` padding), and hexadecimal encoding/decoding with `std::expected` validation. |
-| [`slimr::proc`](packages/proc/README.md) | `<slimr/proc.hpp>` | `slimr::proc` | Safe subprocess execution (`slimr::proc::exec`) via `posix_spawnp` + `poll()` pipe multiplexor (never invokes a shell) with `cwd`, merged `env`, `stdin_data`, and `timeout_ms` (`SIGKILL` watchdog). |
-| [`slimr::time`](packages/time/README.md) | `<slimr/time.hpp>` | `slimr::time` | Thread-safe UTC ISO-8601 formatting/parsing (`format_iso8601_utc`, `format_iso8601_utc_ms`, `parse_iso8601_utc`) and DST-accurate IANA timezone civil day bounds (`civil_day_bounds("2026-07-01", "Europe/Dublin")`). |
-| [`slimr::text`](packages/text/README.md) | `<slimr/text.hpp>` | `slimr::text` | UTF-8 text sanitizer (`clean_text` stripping ASCII control chars, zero-width spaces, bidi overrides, and Unicode tag-plane prompt injections) and 12-stage HTML-to-readable-text converter (`html_to_text`). |
-| [`slimr::test`](packages/test/README.md) | `<slimr/test.hpp>` | `slimr::test` | Lightweight test runner macros (`TEST_SUITE`, `TEST_CASE`, `CHECK`, `REQUIRE`) and RAII `TempDirGuard` fixture helper over [doctest](https://github.com/doctest/doctest). |
+| [`slimr::json`](packages/json/README.md) | `<json.hpp>` | `slimr-json` | RFC-8259 UTF-8 JSON DOM (`slimr::Json` preserving 64-bit integer precision over [Glaze](https://github.com/stephenberry/glaze)), `parse_json<T>` (`std::expected`), `write_json`, `read_json`, and `json_obj` / `json_arr` builders without `std::initializer_list` traps. |
+| [`slimr::reflect`](packages/reflect/README.md) | `<reflect.hpp>` | `slimr-reflect` | Zero-macro C++26 compile-time struct reflection (`Field<T, "desc">`, `OptField<T, "desc">`, `ReqField<T, "desc">`) that maps C++ structs directly to strict MCP JSON Schemas (`additionalProperties: false`) and typed Glaze deserializers. |
+| [`slimr::yaml`](packages/yaml/README.md) | `<yaml.hpp>` | `slimr-yaml` | Arena-allocated YAML 1.2 parser and emitter (`parse_yaml<T>`, `to_yaml`) plus Markdown YAML frontmatter splitter (`parse_frontmatter`) over [RapidYAML](https://github.com/biojppm/rapidyaml). |
+| [`slimr::mcp`](packages/mcp/README.md) | `<mcp.hpp>` | `slimr-mcp` | `PluginApp` and multi-plugin `Gateway`: stdio NDJSON MCP server (`2025-11-25` / `2025-06-18` / `2024-11-05`) and narrow JSON CLI (`<bin> <tool> ['{"k":"v"}']`) sharing one deserializer, with resources (`mcp_resource_read`) and native `text`/`image`/`audio` content blocks. |
+| [`slimr::sqlite`](packages/sqlite/README.md) | `<sqlite.hpp>` | `slimr-sqlite` | RAII SQLite 3 + FTS5 wrapper (`slimr::Database`) with WAL defaults, a 256-statement LRU cache, positional & named parameters (`:k`, `$k`, `@k`), typed `get<T>`/`all<T>`/`pluck<T>`/`pluckAll<T>`, nested `SAVEPOINT` transactions, `PRAGMA user_version` migrations, `iterateLimited` (`readOnlyConnection` + `PRAGMA query_only = ON`), custom scalar functions, and online backup. |
+| [`slimr::curl`](packages/curl/README.md) | `<curl.hpp>` | `slimr-curl` | RAII HTTP/HTTPS client (`slimr::request`, `slimr::url_encode`) over `libcurl` with lowercased response headers, timeouts, custom HTTP methods, and Unix domain socket transport (`CURLOPT_UNIX_SOCKET_PATH`). |
+| [`slimr::ws`](packages/ws/README.md) | `<ws.hpp>` | `slimr-ws` | RAII WebSocket client (`connect`, `sendJson`, `recvJson`, `sendText`, `recvText`) over `libcurl` 8.7+ native WebSockets (`CURLOPT_CONNECT_ONLY = 2L`, `curl_ws_send`, `curl_ws_recv`). |
+| [`slimr::bugsink`](packages/bugsink/README.md) | `<bugsink.hpp>` | `slimr-bugsink` | Sentry v7 NDJSON envelope formatter and non-throwing error/warning reporter (`BugsinkReporter`) for self-hosted Bugsink or Sentry (`BUGSINK_DSN` override, `""` disables). |
+| [`slimr::encoding`](packages/encoding/README.md) | `<encoding.hpp>` | `slimr-encoding` | RFC 4648 Base64, Base64url (with optional `=` padding), and hexadecimal encoding/decoding with `std::expected` validation. |
+| [`slimr::proc`](packages/proc/README.md) | `<proc.hpp>` | `slimr-proc` | Safe subprocess execution (`slimr::proc::exec`) via `posix_spawnp` + `poll()` pipe multiplexor (never invokes a shell) with `cwd`, merged `env`, `stdin_data`, and `timeout_ms` (`SIGKILL` watchdog). |
+| [`slimr::time`](packages/time/README.md) | `<time.hpp>` | `slimr-time` | Thread-safe UTC ISO-8601 formatting/parsing (`format_iso8601_utc`, `format_iso8601_utc_ms`, `parse_iso8601_utc`) and DST-accurate IANA timezone civil day bounds (`civil_day_bounds("2026-07-01", "Europe/Dublin")`). |
+| [`slimr::text`](packages/text/README.md) | `<text.hpp>` | `slimr-text` | UTF-8 text sanitizer (`clean_text` stripping ASCII control chars, zero-width spaces, bidi overrides, and Unicode tag-plane prompt injections) and 12-stage HTML-to-readable-text converter (`html_to_text`). |
+| [`slimr::test`](packages/test/README.md) | `<test.hpp>` | `slimr-test` | Lightweight test runner macros (`TEST_SUITE`, `TEST_CASE`, `CHECK`, `REQUIRE`) and RAII `TempDirGuard` fixture helper over [doctest](https://github.com/doctest/doctest). |
 
 ---
 
-## Integration (Direct Includes, CMake, or vcpkg)
+## Integration (vcpkg + CMake/Ninja)
 
-Each package lives in `packages/<pkg>/` with its own self-contained `include/slimr/<pkg>.hpp`, `tests/test_<pkg>.cpp`, `CMakeLists.txt` (`slimr::<pkg>`), and `README.md`.
+Each library owns everything it needs in one flat folder:
 
-### 1. Direct Compiler Include (`-Islimr-cpp/include`)
-
-Forwarding headers in `slimr-cpp/include/slimr/<pkg>.hpp` re-export each package header, so you can compile directly with `clang++ -std=c++26` without CMake:
-
-```bash
-clang++ -std=c++26 -O3 -flto \
-  -Islimr-cpp/include -Islimr-cpp/vendor/glaze/include -Islimr-cpp/vendor -Islimr-cpp/vendor/ryml \
-  src/main.cpp -lsqlite3 -lcurl -o dist/my-app
+```text
+packages/sqlite/
+  sqlite.hpp
+  test.cpp
+  CMakeLists.txt
+  slimr-sqlite-config.cmake
+  vcpkg.json
+  portfile.cmake
+  README.md
+  LICENSE
 ```
 
-For sub-second incremental compilation during development, precompile `slimr/pch.hpp`:
+There are no forwarding headers. Package-local CMake files declare source targets and standalone tests; each simple port installs headers, relocatable CMake config and licenses. Glaze lives under `packages/json/vendor/`, rapidyaml under `packages/yaml/vendor/`, and doctest under `packages/test/vendor/`, so each port's source is self-contained.
 
-```bash
-clang++ -std=c++26 -O2 -g -fsanitize=address,undefined \
-  -Islimr-cpp/include -Islimr-cpp/vendor/glaze/include -Islimr-cpp/vendor \
-  -x c++-header slimr-cpp/include/slimr/pch.hpp -o slimr-cpp/include/slimr/pch.hpp.gch
-```
+### Dependencies
 
-### 2. CMake (`add_subdirectory`)
+Requires a C++26 compiler (verified with Apple clang 21), CMake 3.31+, Ninja, [just](https://just.systems) and [vcpkg](https://vcpkg.io) on PATH. The environment owns `VCPKG_ROOT` and `VCPKG_OVERLAY_PORTS=$VCPKG_ROOT/local-ports`; recipes do not supply defaults or overwrite them. Host triplets are detected, but Linux portability is not yet verified.
 
-```cmake
-add_subdirectory(slimr-cpp)
-
-add_executable(my-app src/main.cpp)
-target_link_libraries(my-app PRIVATE
-  slimr::mcp
-  slimr::sqlite
-  slimr::yaml
-  slimr::proc
-)
-```
-
-The project exports installable `slimr::` targets, including `slimr::all`. The headers and CMake package config are installed by the vcpkg port.
-
-### 3. vcpkg (local overlay port)
-
-The assistant2 workspace keeps an overlay port at `vcpkg/ports/slimr-cpp`; it builds this checkout directly, so no registry publication or global install is needed. Its `just vcpkg-install` task refreshes the local package from current sources. From the workspace root, set `VCPKG_ROOT` to a bootstrapped vcpkg checkout and run:
-
-```bash
-just vcpkg-install
-```
-
-Manifest mode installs the library and its external dependencies under `vcpkg_installed/`. To consume it from another vcpkg project on the same machine, add the workspace overlay to that project's `vcpkg-configuration.json`:
+A consumer declares only the packages it uses:
 
 ```json
 {
-  "overlay-ports": ["/path/to/assistant2/vcpkg/ports"]
+  "name": "my-app",
+  "version": "0.1.0",
+  "dependencies": ["slimr-sqlite"]
 }
 ```
 
-Then add `"slimr-cpp"` to that project's `vcpkg.json` dependencies and link the exported targets, such as `slimr::mcp` or `slimr::sqlite`.
+`slimr-sqlite` brings in JSON and FTS5-enabled SQLite, not unrelated MCP, HTTP, YAML, or test libraries. WebSocket consumers explicitly request curl's `websockets` feature. Package tests use an optional `tests` feature, keeping doctest out of production dependency closures.
+
+**Publication status:** versioned Git registry publication is in progress. Local overrides and registry release automation are implemented. Clone-free consumption remains unverified until real version metadata and a pinned registry baseline are published and tested. No baseline is fabricated here.
+
+### Usage example: MCP + SQLite
+
+```json
+{
+  "name": "example-app",
+  "version": "2.0.0",
+  "dependencies": ["slimr-mcp", "slimr-sqlite", "slimr-test"]
+}
+```
+
+After installing dependencies, consumers use the installed CMake targets:
+
+```cmake
+cmake_minimum_required(VERSION 3.31)
+project(example LANGUAGES CXX)
+find_package(slimr-mcp CONFIG REQUIRED)
+find_package(slimr-sqlite CONFIG REQUIRED)
+find_package(slimr-test CONFIG REQUIRED)
+add_executable(example src/main.cpp)
+target_link_libraries(example PRIVATE slimr::mcp slimr::sqlite)
+```
+
+Each package exports `slimr::<key>` with C++26, owned includes and transitive dependencies. No manual include paths, pkg-config linker strings, or source overrides are needed. Use the single root publisher for named overlay symlinks under the environment's `VCPKG_OVERLAY_PORTS` directory:
+
+```sh
+just publish --dry --local --all
+just publish --local --include sqlite,json
+just publish --local --undo --include sqlite,json
+just publish --dry --include sqlite,json
+```
+
+Choose exactly one of `--include key,key`, `--dirty`, or `--all`. `--dry` uses the normal read-only plan but skips all checks and mutations. Local mode creates/replaces selected named symlinks, or removes them with `--undo`; targets are never modified and selected nonlinks are rejected before any mutation. Registry mode adds affected dependents, patch-bumps versions and updates dependency minimums only after all release-set package tests, Release builds/tests and lint pass. It commits package source first, then metadata with real committed tree hashes, preserves unrelated dirty/staged work, and pushes the configured upstream. Do not run registry mode without explicit release authorization. See [Publishing](docs/publishing.md) for selection, switching sources and partial-failure recovery.
+
+Use `vcpkg install --triplet=<host-triplet> --x-install-root=build/deps`.
+Configure with vcpkg's toolchain, `VCPKG_MANIFEST_MODE=OFF`,
+`VCPKG_MANIFEST_INSTALL=OFF`, the absolute `VCPKG_INSTALLED_DIR` and matching
+`VCPKG_TARGET_TRIPLET`. Thin justfiles own automatic dependency installation;
+CMake does not install a second time. Local source edits are refreshed through
+`deps` before Ninja builds installed headers. Binary caching stays enabled.
 
 ---
 
@@ -89,8 +109,8 @@ Then add `"slimr-cpp"` to that project's `vcpkg.json` dependencies and link the 
 Define a reflected input struct once and get both an MCP server (`./my-app mcp`) and a narrow JSON CLI (`./my-app add '{"title":"Buy milk"}'`) backed by SQLite in ~35 lines of C++26:
 
 ```cpp
-#include <slimr/mcp.hpp>
-#include <slimr/sqlite.hpp>
+#include <mcp.hpp>
+#include <sqlite.hpp>
 
 struct AddNoteInput {
     slimr::Field<std::string, "Note title"> title;
@@ -139,11 +159,55 @@ int main(int argc, char** argv) {
 
 Every package test suite is compiled and executed under **AddressSanitizer** and **UndefinedBehaviorSanitizer** (`-fsanitize=address,undefined`):
 
+One root CMake/Ninja project tests source targets, while `build/deps/` contains only native development dependencies, never installed slimr copies. Debug instrumentation includes ASan, fatal UBSan, zero auto-init and verified libc++ FAST hardening; Release retains hardening/zero-init with O3 and checked IPO. These settings are development-only, not exported to consumers.
+
 ```bash
-just test             # Run all 33 test cases (154 assertions) across all 13 packages
+just deps             # Install native development dependencies
+just configure Debug  # Automatic deps, manifest auto-install OFF
+just test             # Run the aggregate suite and all 13 standalone package suites
 just test-pkg sqlite  # Run a single package's test suite (json, reflect, yaml, mcp, sqlite, curl, ws, ...)
-just build            # Build optimized (-O3 -flto) release test binary
+just build            # Build and run all 14 optimized Release suites
+just lint             # Analyze all 14 test translation units
 ```
+
+Debug and Release graphs/binaries live in `build/cmake/{Debug,Release}/`; generated files never enter port trees. All test suites have 120-second CTest timeouts and repo-local temporary directories; commands use `--no-tests=error`, and `test-pkg` rejects unknown names. Unchanged Ninja builds do no work. All configure/test/build/lint commands run `deps` automatically. Set `CLANG_TIDY` to a compatible executable when not on PATH; missing tools and diagnostics fail rather than being silently skipped. Builds use at most two parallel jobs.
+
+Original code is [ISC](LICENSE). Vendored code keeps its upstream licenses.
+
+---
+
+## Native CI and Bounded Fuzzing
+
+PRs, main pushes and merge groups run publishing automation fixture tests plus `just test`, `just build` and `just lint` on Linux/macOS with Clang/libc++ 21. Configure `VCPKG_REF` as a tested full vcpkg commit SHA. No private slimr dependency checkout is needed for this repo. Workflow checks and branch protection still require actual remote verification.
+
+The fuzz runtime gate remains unverified and is disabled in CI unless the repository variable `ENABLE_FUZZING` is explicitly set to `true`. Configuration and example commands are not a passing fuzz receipt.
+
+On Linux with Clang 21/libc++ and vcpkg dependencies installed:
+
+```sh
+just deps
+CXX=clang++-21 CXXFLAGS=-stdlib=libc++ LDFLAGS=-fuse-ld=lld-21 \
+cmake -S . -B build/cmake/Fuzz -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF \
+  -DBUILD_FUZZING=ON -DENABLE_SANITIZERS=ON \
+  -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+  -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_MANIFEST_INSTALL=OFF \
+  -DVCPKG_INSTALLED_DIR="$PWD/build/deps" -DVCPKG_TARGET_TRIPLET=x64-linux
+cmake --build build/cmake/Fuzz
+mkdir -p build/fuzz/corpus build/fuzz/artifacts/{json,yaml,encoding}
+cp -R fuzz/corpus/. build/fuzz/corpus/
+for target in json yaml encoding; do
+  "./build/cmake/Fuzz/fuzz/fuzz_$target" "build/fuzz/corpus/$target" \
+    -max_total_time=15 -timeout=2 -rss_limit_mb=2048 -max_len=1024 \
+    "-artifact_prefix=build/fuzz/artifacts/$target/"
+done
+```
+
+Use your host triplet and a Clang distribution with libFuzzer for other hosts.
+The verified Apple clang 21 build compiler lacks libFuzzer; use Homebrew LLVM in a
+separate Fuzz tree for macOS smoke checks. Fuzz flags are target-local and never
+exported. CI also lints `fuzz/*.cpp` using its Fuzz compilation database, caches
+corpora between commits, and uploads reproducer/corpus artifacts for seven days.
 
 ---
 
@@ -151,16 +215,16 @@ just build            # Build optimized (-O3 -flto) release test binary
 
 | Goal | Header | Primary API |
 | --- | --- | --- |
-| Parse / serialize JSON | `<slimr/json.hpp>` | `slimr::parse_json<T>(sv)`, `slimr::write_json(v)`, `slimr::json_obj({...})` |
-| Reflect struct to JSON Schema | `<slimr/reflect.hpp>` | `slimr::Field<T, "desc">`, `slimr::OptField<T, "desc">`, `slimr::schema<T>()` |
-| Parse YAML / frontmatter | `<slimr/yaml.hpp>` | `slimr::parse_yaml<T>(sv)`, `slimr::to_yaml(v)`, `slimr::parse_frontmatter(md)` |
-| Build MCP server + JSON CLI | `<slimr/mcp.hpp>` | `slimr::PluginApp`, `app.tool<In>(...)`, `slimr::Gateway`, `app.run(argc, argv)` |
-| Query SQLite + FTS5 | `<slimr/sqlite.hpp>` | `slimr::Database`, `db.get<T>`, `db.all<T>`, `db.pluck<T>`, `db.transaction`, `db.iterateLimited` |
-| HTTP / Unix socket requests | `<slimr/curl.hpp>` | `slimr::request(HttpRequest{...})`, `slimr::url_encode(sv)` |
-| WebSocket client (CDP) | `<slimr/ws.hpp>` | `slimr::WebSocket`, `ws.connect(url)`, `ws.sendJson(j)`, `ws.recvJson(timeoutMs)` |
-| Report errors to Bugsink | `<slimr/bugsink.hpp>` | `slimr::BugsinkReporter`, `reporter.reportError(e, extra)`, `reporter.reportMessage(...)` |
-| Safe subprocess (`posix_spawnp`) | `<slimr/proc.hpp>` | `slimr::proc::exec({"gws", ...}, {.timeout_ms = 5000})` |
-| Civil dates & ISO-8601 | `<slimr/time.hpp>` | `slimr::civil_day_bounds("2026-07-01", "Europe/Dublin")`, `slimr::format_iso8601_utc(sec)` |
-| Clean HTML & untrusted UTF-8 | `<slimr/text.hpp>` | `slimr::clean_text(sv)`, `slimr::html_to_text(html)` |
-| Base64 / Base64url / Hex | `<slimr/encoding.hpp>` | `slimr::base64_encode(sv)`, `slimr::base64url_encode(sv)`, `slimr::hex_encode(sv)` |
-| Unit tests & temp dirs | `<slimr/test.hpp>` | `TEST_CASE`, `CHECK`, `REQUIRE`, `slimr::testing::TempDirGuard` |
+| Parse / serialize JSON | `<json.hpp>` | `slimr::parse_json<T>(sv)`, `slimr::write_json(v)`, `slimr::json_obj({...})` |
+| Reflect struct to JSON Schema | `<reflect.hpp>` | `slimr::Field<T, "desc">`, `slimr::OptField<T, "desc">`, `slimr::schema<T>()` |
+| Parse YAML / frontmatter | `<yaml.hpp>` | `slimr::parse_yaml<T>(sv)`, `slimr::to_yaml(v)`, `slimr::parse_frontmatter(md)` |
+| Build MCP server + JSON CLI | `<mcp.hpp>` | `slimr::PluginApp`, `app.tool<In>(...)`, `slimr::Gateway`, `app.run(argc, argv)` |
+| Query SQLite + FTS5 | `<sqlite.hpp>` | `slimr::Database`, `db.get<T>`, `db.all<T>`, `db.pluck<T>`, `db.transaction`, `db.iterateLimited` |
+| HTTP / Unix socket requests | `<curl.hpp>` | `slimr::request(HttpRequest{...})`, `slimr::url_encode(sv)` |
+| WebSocket client (CDP) | `<ws.hpp>` | `slimr::WebSocket`, `ws.connect(url)`, `ws.sendJson(j)`, `ws.recvJson(timeoutMs)` |
+| Report errors to Bugsink | `<bugsink.hpp>` | `slimr::BugsinkReporter`, `reporter.reportError(e, extra)`, `reporter.reportMessage(...)` |
+| Safe subprocess (`posix_spawnp`) | `<proc.hpp>` | `slimr::proc::exec({"gws", ...}, {.timeout_ms = 5000})` |
+| Civil dates & ISO-8601 | `<time.hpp>` | `slimr::civil_day_bounds("2026-07-01", "Europe/Dublin")`, `slimr::format_iso8601_utc(sec)` |
+| Clean HTML & untrusted UTF-8 | `<text.hpp>` | `slimr::clean_text(sv)`, `slimr::html_to_text(html)` |
+| Base64 / Base64url / Hex | `<encoding.hpp>` | `slimr::base64_encode(sv)`, `slimr::base64url_encode(sv)`, `slimr::hex_encode(sv)` |
+| Unit tests & temp dirs | `<test.hpp>` | `TEST_CASE`, `CHECK`, `REQUIRE`, `slimr::testing::TempDirGuard` |

@@ -11,7 +11,7 @@ In TypeScript, Zod lets you declare a schema once with `.describe("...")` and de
 ## Quick Start
 
 ```cpp
-#include <slimr/reflect.hpp>
+#include <reflect.hpp>
 
 struct SearchInput {
     slimr::Field<std::string, "Search keywords"> query;
@@ -42,3 +42,14 @@ int lim = in.limit.get();                      // 10
 | `slimr::Field<T, "desc">` | Yes (unless `T` is `std::optional<U>`) | `.get()`, `.value`, implicit `const T&`, plus `.has_value()`, `.value_or(def)`, `*f`, `f->` when `T` is `std::optional` | Required tool parameters (or explicitly optional `std::optional<U>` fields) |
 | `slimr::OptField<T, "desc">` | No | `.get()`, `.value`, implicit `const T&` | Optional parameters with an inline C++ default value (e.g. `OptField<int, "Limit"> limit{25};`) |
 | `slimr::Desc<T, "desc">` | Alias for `Field<T, "desc">` | Same as `Field` | Short alias for `Field` |
+
+## Build & Test
+
+This folder owns its header, `test.cpp`, CMake target/config, manifest, port recipe and licenses. See the [integration guide](../../README.md#integration-vcpkg--cmakeninja).
+
+```bash
+just test-pkg reflect  # From the repository root; automatic native deps + ASan/UBSan
+just build            # All optimized Release suites
+```
+
+Generated output stays under root `build/deps/` and `build/cmake/{Debug,Release}/`. Consumers link `slimr::reflect` from `find_package(slimr-reflect CONFIG REQUIRED)`. The optional manifest `tests` feature keeps test dependencies out of production consumption.

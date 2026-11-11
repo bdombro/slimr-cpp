@@ -1,0 +1,12 @@
+Checks: >
+  -*,
+  clang-analyzer-core.*,
+  clang-analyzer-cplusplus.NewDelete,
+  bugprone-dangling-handle,
+  bugprone-infinite-loop,
+  bugprone-sizeof-expression,
+  bugprone-use-after-move
+WarningsAsErrors: '*'
+HeaderFilterRegex: '(^|/)(packages/[^/]+/[^/]+\.hpp|tests/[^/]+\.hpp)$'
+ExcludeHeaderFilterRegex: '(^|/)(vendor|build)/'
+SystemHeaders: false

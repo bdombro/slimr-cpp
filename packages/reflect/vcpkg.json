@@ -1,0 +1,12 @@
+{
+  "name": "slimr-reflect",
+  "version": "0.1.0",
+  "description": "Header-only C++26 struct reflection and JSON Schema",
+  "dependencies": ["slimr-json"],
+  "features": {
+    "tests": {
+      "description": "Dependencies for the standalone test suite",
+      "dependencies": ["slimr-test"]
+    }
+  }
+}

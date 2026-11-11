@@ -16,7 +16,7 @@ Borrowed directly from the design of [`@slimr/bugsink`](https://www.npmjs.com/pa
 ## Quick Start
 
 ```cpp
-#include <slimr/bugsink.hpp>
+#include <bugsink.hpp>
 #include <iostream>
 #include <stdexcept>
 
@@ -57,3 +57,14 @@ int main() {
 | `formatEnvelope` | `std::string formatEnvelope(const Json& payload, const std::string& eventId, const std::string& timestamp) const` | Formats Sentry event payload into multi-line envelope format. |
 | `reportError` | `bool reportError(const std::exception& err, const Json& extra = Json::object_t{})` | Reports a standard C++ exception with optional extra metadata. Returns `true` on success. |
 | `reportMessage` | `bool reportMessage(std::string_view message, std::string_view level = "warning", const Json& extra = Json::object_t{})` | Reports a log message with severity level and optional extra metadata. |
+
+## Build & Test
+
+This folder owns its header, `test.cpp`, CMake target/config, manifest, port recipe and licenses. See the [integration guide](../../README.md#integration-vcpkg--cmakeninja).
+
+```bash
+just test-pkg bugsink  # From the repository root; automatic native deps + ASan/UBSan
+just build            # All optimized Release suites
+```
+
+Generated output stays under root `build/deps/` and `build/cmake/{Debug,Release}/`. Consumers link `slimr::bugsink` from `find_package(slimr-bugsink CONFIG REQUIRED)`. The optional manifest `tests` feature keeps test dependencies out of production consumption.

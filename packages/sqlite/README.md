@@ -1,6 +1,6 @@
 # slimr::sqlite (`packages/sqlite`)
 
-Fast, RAII SQLite 3 + FTS5 wrapper for C++26 — built directly on macOS/system `-lsqlite3` with WAL defaults, a 256-statement LRU cache, `PRAGMA user_version` migrations, nested `SAVEPOINT` transactions, and isolated read-only cursors.
+Fast, RAII SQLite 3 + FTS5 wrapper for C++26 — backed by vcpkg-managed SQLite with FTS5 with WAL defaults, a 256-statement LRU cache, `PRAGMA user_version` migrations, nested `SAVEPOINT` transactions, and isolated read-only cursors.
 
 Borrowed directly from the design of [`@slimr/sqlite`](https://www.npmjs.com/package/@slimr/sqlite).
 
@@ -19,7 +19,7 @@ Raw C `sqlite3*` APIs require repetitive `sqlite3_prepare_v2` / `sqlite3_bind_*`
 ## Quick Start
 
 ```cpp
-#include <slimr/sqlite.hpp>
+#include <sqlite.hpp>
 
 using namespace slimr;
 
@@ -144,3 +144,14 @@ db.backup("./backups/app-backup.db");
 | Atomic transaction / savepoint | `db.transaction([&](Tx& tx) { ... })` |
 | Capped read-only query | `db.iterateLimited(sql, {.limit = 200, .readOnlyConnection = true})` |
 | Online backup | `db.backup(destPath)` |
+
+## Build & Test
+
+This folder owns its header, `test.cpp`, CMake target/config, manifest, port recipe and licenses. See the [integration guide](../../README.md#integration-vcpkg--cmakeninja).
+
+```bash
+just test-pkg sqlite  # From the repository root; automatic native deps + ASan/UBSan
+just build           # All optimized Release suites
+```
+
+Generated output stays under root `build/deps/` and `build/cmake/{Debug,Release}/`. Consumers link `slimr::sqlite` from `find_package(slimr-sqlite CONFIG REQUIRED)`. The optional manifest `tests` feature keeps test dependencies out of production consumption.

@@ -1,0 +1,10 @@
+{
+  "name": "slimr-test",
+  "version": "0.1.0",
+  "description": "Header-only doctest runner and temporary directory fixtures",
+  "features": {
+    "tests": {
+      "description": "Run the standalone test suite"
+    }
+  }
+}

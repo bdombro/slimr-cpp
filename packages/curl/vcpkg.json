@@ -1,0 +1,12 @@
+{
+  "name": "slimr-curl",
+  "version": "0.1.0",
+  "description": "Header-only HTTP and Unix socket client",
+  "dependencies": ["curl"],
+  "features": {
+    "tests": {
+      "description": "Dependencies for the standalone test suite",
+      "dependencies": ["slimr-test"]
+    }
+  }
+}

@@ -16,7 +16,7 @@ Borrowed directly from the design of [`@slimr/ws`](https://www.npmjs.com/package
 ## Quick Start
 
 ```cpp
-#include <slimr/ws.hpp>
+#include <ws.hpp>
 #include <iostream>
 
 using namespace slimr;
@@ -64,3 +64,14 @@ int main() {
 | `recvJson` | `std::optional<Json> recvJson(long timeoutMs = 5000)` | Receives and parses JSON response into `slimr::Json`. |
 | `close` | `void close() noexcept` | Gracefully sends close frame and cleans up curl handles. |
 | `isConnected` | `bool isConnected() const noexcept` | Returns `true` if currently connected. |
+
+## Build & Test
+
+This folder owns its header, `test.cpp`, CMake target/config, manifest, port recipe and licenses. See the [integration guide](../../README.md#integration-vcpkg--cmakeninja).
+
+```bash
+just test-pkg ws  # From the repository root; automatic native deps + ASan/UBSan
+just build       # All optimized Release suites
+```
+
+Generated output stays under root `build/deps/` and `build/cmake/{Debug,Release}/`. Consumers link `slimr::ws` from `find_package(slimr-ws CONFIG REQUIRED)`. The optional manifest `tests` feature keeps test dependencies out of production consumption.

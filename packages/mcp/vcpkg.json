@@ -1,0 +1,12 @@
+{
+  "name": "slimr-mcp",
+  "version": "0.1.0",
+  "description": "Header-only typed MCP servers and JSON CLIs",
+  "dependencies": ["slimr-json", "slimr-reflect", "slimr-bugsink"],
+  "features": {
+    "tests": {
+      "description": "Dependencies for the standalone test suite",
+      "dependencies": ["slimr-test"]
+    }
+  }
+}

@@ -16,7 +16,7 @@ Borrowed directly from the design of [`@slimr/proc`](https://www.npmjs.com/packa
 ## Quick Start
 
 ```cpp
-#include <slimr/proc.hpp>
+#include <proc.hpp>
 #include <iostream>
 #include <vector>
 
@@ -57,3 +57,14 @@ int main() {
 | `ProcOptions` | `struct ProcOptions { std::string cwd; std::map<std::string, std::string> env; std::string stdin_data; int timeout_ms = 0; };` | Options configuring working directory, environment, stdin, and timeout. |
 | `ProcResult` | `struct ProcResult { int exit_code = -1; std::string stdout_str; std::string stderr_str; bool timed_out = false; };` | Result container holding exit code, stdout, stderr, and timeout status. |
 | `exec` | `inline ProcResult exec(const std::vector<std::string>& args, const ProcOptions& options = {})` | Spawns and executes process with args and options, polling output and enforcing timeouts. |
+
+## Build & Test
+
+This folder owns its header, `test.cpp`, CMake target/config, manifest, port recipe and licenses. See the [integration guide](../../README.md#integration-vcpkg--cmakeninja).
+
+```bash
+just test-pkg proc  # From the repository root; automatic native deps + ASan/UBSan
+just build         # All optimized Release suites
+```
+
+Generated output stays under root `build/deps/` and `build/cmake/{Debug,Release}/`. Consumers link `slimr::proc` from `find_package(slimr-proc CONFIG REQUIRED)`. The optional manifest `tests` feature keeps test dependencies out of production consumption.

@@ -1,0 +1,8 @@
+{
+  "name": "slimr-cpp",
+  "version": "0.1.0",
+  "dependencies": [
+    {"name": "sqlite3", "features": ["fts5"]},
+    {"name": "curl", "features": ["websockets"]}
+  ]
+}

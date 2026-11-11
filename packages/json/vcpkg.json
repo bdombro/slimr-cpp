@@ -1,0 +1,11 @@
+{
+  "name": "slimr-json",
+  "version": "0.1.0",
+  "description": "Header-only C++26 JSON parsing and serialization",
+  "features": {
+    "tests": {
+      "description": "Dependencies for the standalone test suite",
+      "dependencies": ["slimr-test"]
+    }
+  }
+}

@@ -16,7 +16,7 @@ Borrowed directly from the design of [`@slimr/time`](https://www.npmjs.com/packa
 ## Quick Start
 
 ```cpp
-#include <slimr/time.hpp>
+#include <time.hpp>
 #include <iostream>
 
 using namespace slimr;
@@ -61,3 +61,14 @@ int main() {
 | `format_iso8601_utc_ms` | `inline std::string format_iso8601_utc_ms(int64_t epoch_ms)` | Formats UTC epoch milliseconds to `YYYY-MM-DDTHH:MM:SS.mmmZ`. |
 | `parse_iso8601_utc` | `inline std::expected<int64_t, std::string> parse_iso8601_utc(std::string_view iso_str)` | Parses ISO-8601 date-time string into UTC epoch seconds within `std::expected`. |
 | `civil_day_bounds` | `inline std::expected<CivilDayBounds, std::string> civil_day_bounds(std::string_view yyyy_mm_dd, std::string_view tz = "Europe/Dublin")` | Computes UTC start and end bounds for civil day `YYYY-MM-DD` in given timezone. |
+
+## Build & Test
+
+This folder owns its header, `test.cpp`, CMake target/config, manifest, port recipe and licenses. See the [integration guide](../../README.md#integration-vcpkg--cmakeninja).
+
+```bash
+just test-pkg time  # From the repository root; automatic native deps + ASan/UBSan
+just build         # All optimized Release suites
+```
+
+Generated output stays under root `build/deps/` and `build/cmake/{Debug,Release}/`. Consumers link `slimr::time` from `find_package(slimr-time CONFIG REQUIRED)`. The optional manifest `tests` feature keeps test dependencies out of production consumption.

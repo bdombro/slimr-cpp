@@ -1,12 +1,5 @@
-/bin/
 /build/
-/cmake-build-*/
-/CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-CTestTestfile.cmake
-Makefile
+/.ci/
 *.o
-*.gch
 *.dSYM/
 .DS_Store

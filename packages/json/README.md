@@ -16,7 +16,7 @@ Borrowed directly from the design of [`@slimr/json`](https://www.npmjs.com/packa
 ## Quick Start
 
 ```cpp
-#include <slimr/json.hpp>
+#include <json.hpp>
 #include <iostream>
 
 using namespace slimr;
@@ -63,3 +63,14 @@ int main() {
 | `write_json_pretty` | `template <typename T> inline std::string write_json_pretty(const T& val)` | Serializes value to formatted indented JSON string. |
 | `read_json` | `template <typename T> inline auto read_json(T& val, std::string_view buffer)` | Deserializes JSON string into target C++ struct or value. |
 | `parse_json` | `template <typename T = Json> inline std::expected<T, std::string> parse_json(std::string_view buffer)` | Parses JSON string into newly constructed value of type `T` inside `std::expected`. |
+
+## Build & Test
+
+This folder owns its header, `test.cpp`, CMake target/config, manifest, port recipe and licenses. See the [integration guide](../../README.md#integration-vcpkg--cmakeninja).
+
+```bash
+just test-pkg json  # From the repository root; automatic native deps + ASan/UBSan
+just build         # All optimized Release suites
+```
+
+Generated output stays under root `build/deps/` and `build/cmake/{Debug,Release}/`. Consumers link `slimr::json` from `find_package(slimr-json CONFIG REQUIRED)`. The optional manifest `tests` feature keeps test dependencies out of production consumption.

@@ -1,0 +1,118 @@
+name: C++ checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    name: checks (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/.ci/vcpkg
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/.ci/vcpkg/local-ports
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.ci/vcpkg-cache
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.13.0"
+      - run: node --test scripts/publish.test.mjs
+      - name: Validate vcpkg revision
+        env:
+          VCPKG_REF: ${{ vars.VCPKG_REF }}
+        run: |
+          [[ "$VCPKG_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Set VCPKG_REF to the tested vcpkg commit"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: ${{ vars.VCPKG_REF }}
+          path: .ci/vcpkg
+          persist-credentials: false
+      - name: Linux toolchain
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg
+          echo 'deb [signed-by=/usr/share/keyrings/llvm.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-21 main' | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y clang-21 clang-tidy-21 libc++-21-dev libc++abi-21-dev lld-21 ninja-build zsh pkg-config autoconf automake libtool python3-venv
+          python3 -m venv "$GITHUB_WORKSPACE/.ci/cmake"
+          "$GITHUB_WORKSPACE/.ci/cmake/bin/pip" install cmake==4.4.5
+          echo "$GITHUB_WORKSPACE/.ci/cmake/bin" >> "$GITHUB_PATH"
+          {
+            echo 'CXX=/usr/bin/clang++-21'
+            echo 'CLANG_TIDY=/usr/bin/clang-tidy-21'
+            echo 'CXXFLAGS=-stdlib=libc++'
+            echo 'LDFLAGS=-fuse-ld=lld-21'
+          } >> "$GITHUB_ENV"
+      - uses: extractions/setup-just@v3
+        with:
+          just-version: "1.59.0"
+      - name: macOS toolchain
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake ninja llvm@21 pkgconf autoconf automake libtool
+          echo "CXX=$(brew --prefix llvm@21)/bin/clang++" >> "$GITHUB_ENV"
+          echo "CLANG_TIDY=$(brew --prefix llvm@21)/bin/clang-tidy" >> "$GITHUB_ENV"
+      - name: Prepare vcpkg
+        run: |
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          echo "$VCPKG_ROOT" >> "$GITHUB_PATH"
+          mkdir -p "$VCPKG_OVERLAY_PORTS" "$VCPKG_DEFAULT_BINARY_CACHE"
+      - uses: actions/cache@v4
+        with:
+          path: .ci/vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ vars.VCPKG_REF }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ vars.VCPKG_REF }}-
+      - run: just test
+      - run: just build
+      - run: just lint
+      - uses: actions/cache@v4
+        if: runner.os == 'Linux' && vars.ENABLE_FUZZING == 'true'
+        with:
+          path: build/fuzz/corpus
+          key: fuzz-linux-clang21-${{ github.sha }}
+          restore-keys: fuzz-linux-clang21-
+      - name: Build and lint fuzz targets
+        if: runner.os == 'Linux' && vars.ENABLE_FUZZING == 'true'
+        run: |
+          cmake -S . -B build/cmake/Fuzz -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF \
+            -DBUILD_FUZZING=ON -DENABLE_SANITIZERS=ON \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_MANIFEST_INSTALL=OFF \
+            -DVCPKG_INSTALLED_DIR="$GITHUB_WORKSPACE/build/deps" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux
+          cmake --build build/cmake/Fuzz
+          "$CLANG_TIDY" -p build/cmake/Fuzz fuzz/*.cpp
+      - name: Bounded parser and encoding fuzz smoke
+        if: runner.os == 'Linux' && vars.ENABLE_FUZZING == 'true'
+        run: |
+          mkdir -p build/fuzz/corpus build/fuzz/artifacts/{json,yaml,encoding}
+          cp -R fuzz/corpus/. build/fuzz/corpus/
+          for target in json yaml encoding; do
+            "./build/cmake/Fuzz/fuzz/fuzz_$target" "build/fuzz/corpus/$target" \
+              -max_total_time=15 -timeout=2 -rss_limit_mb=2048 -max_len=1024 \
+              "-artifact_prefix=build/fuzz/artifacts/$target/"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Linux' && vars.ENABLE_FUZZING == 'true'
+        with:
+          name: fuzz-reproducers-and-corpus
+          path: |
+            build/fuzz/artifacts
+            build/fuzz/corpus
+          retention-days: 7
