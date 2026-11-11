@@ -74,7 +74,11 @@ inline ProcResult exec(const std::vector<std::string>& args, const ProcOptions& 
 
 #if defined(__APPLE__) || defined(_GNU_SOURCE)
     if (!options.cwd.empty()) {
+#if defined(__APPLE__) && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 260000
         posix_spawn_file_actions_addchdir(&actions, options.cwd.c_str());
+#else
+        posix_spawn_file_actions_addchdir_np(&actions, options.cwd.c_str());
+#endif
     }
 #endif
 
