@@ -4,6 +4,14 @@ Written for: AI coding agents working in the `slimr-cpp` C++26 monorepo.
 
 `slimr-cpp` is a header-only C++26 library monorepo organized into flat, standalone packages under `packages/<pkg>/`. Include `<pkg>.hpp` directly; there is no forwarding-header layer.
 
+
+## Documentation Upkeep
+
+When a change conflicts with `README.md`, update the affected README and its
+linked user/developer documentation in the same change. Keep examples,
+configuration, install/build commands and compatibility claims consistent
+with implemented behavior; do not claim unverified release or client support.
+
 ## Commands
 
 | Task | Command |
@@ -44,7 +52,7 @@ Consumers declare `slimr-<pkg>` dependencies in vcpkg manifests, use `find_packa
 
 The environment owns `VCPKG_ROOT` (bootstrapped checkout) and `VCPKG_OVERLAY_PORTS=$VCPKG_ROOT/local-ports`; recipes do not override them. Put `vcpkg`, CMake 3.31+, Ninja, just, zsh and a C++26 compiler on PATH. The verified host is Apple clang 21/macOS ARM64; host triplet detection alone does not establish Linux portability. Set `CLANG_TIDY` to a compatible executable when not on PATH. Missing tools or diagnostics fail visibly. Generated files live under `build/deps/` and `build/cmake/{Debug,Release}/`. Configure/build/test/lint automatically run `deps`; CMake manifest auto-install is OFF. Native `--x-wait-for-lock` serializes concurrent installs sharing vcpkg's buildtrees. Preserve `zsh -f` in the recipe shell: user startup files otherwise can overwrite inherited overlay variables. `test-pkg` validates its selector before configuring. Every CTest command uses `--no-tests=error`, every suite has a finite timeout and a repo-local `TMPDIR`.
 
-The private registry is not published: do not claim clone-free remote resolution works or invent a baseline. The single root `publish *args` forwards to `scripts/publish.mjs`; there are no per-package justfiles or separate local publishing recipes. Select exactly one of `--include key,key`, `--dirty`, or `--all`; `--undo` requires `--local`. Dry runs use the same read-only plan as normal execution but skip checks and all mutations. Local mode only changes selected named overlay symlinks: enable can replace another symlink, undo can unlink it, targets are untouched, and all selected nonlinks are rejected before mutation. No ownership markers, installed-header/cache changes or registry writes.
+The public registry has a published baseline documented in `docs/publishing.md`, but that baseline predates the current July HTTP support. Do not invent a newer baseline or claim the current HTTP consumers build from the older release without local overlays. The single root `publish *args` forwards to `scripts/publish.mjs`; there are no per-package justfiles or separate local publishing recipes. Select exactly one of `--include key,key`, `--dirty`, or `--all`; `--undo` requires `--local`. Dry runs use the same read-only plan as normal execution but skip checks and all mutations. Local mode only changes selected named overlay symlinks: enable can replace another symlink, undo can unlink it, targets are untouched, and all selected nonlinks are rejected before mutation. No ownership markers, installed-header/cache changes or registry writes.
 
 Registry execution requires explicit release authorization. It includes affected reverse dependents (including feature dependencies), plans patch bumps/dependency minimums, and requires every release-set package's `test-pkg`, `build-pkg` and `lint-pkg` checks before any release writes. It commits exact package paths first, generates metadata from real committed package trees, preserves previous history/baseline entries, commits exact metadata paths, then pushes the configured upstream. Preserve unrelated working/staged changes; reject preexisting registry metadata edits rather than mixing them into a release. Include the required Copilot coauthor. Report partial failures with known commit SHAs and push uncertainty; never claim rollback or blindly retry. See [Publishing](docs/publishing.md) for procedures and current gates. Automation fixture tests are not a real release or a passing C++ check gate.
 
@@ -56,7 +64,7 @@ Original code is ISC; retain bundled upstream notices and verify redistribution 
 
 `.github/workflows/ci.yml` runs root tests, optimized builds and lint on Linux/macOS for PRs, main pushes and merge groups, with a 45-minute job timeout. Set repository variable `VCPKG_REF` to a tested full 40-character commit; no slimr checkout/token is needed for this repo's source tests. CI uses Clang/libc++ 21 and `llvm@21` on macOS. Remote runner execution and required branch rules must be verified separately; workflow syntax validation is not a passing CI run.
 
-`BUILD_FUZZING=ON` adds `fuzz_json`, `fuzz_yaml` and `fuzz_encoding`, with target-local libFuzzer instrumentation plus the existing ASan/fatal UBSan protections. It requires `ENABLE_SANITIZERS=ON` and a Clang distribution shipping libFuzzer (the host's Apple clang 21 does not; Homebrew LLVM does). See the [README](README.md#native-ci-and-bounded-fuzzing) for local commands. Linux CI lints all three fuzz translation units, then runs each for 15 seconds with a two-second per-input timeout, 1024-byte input limit and 2 GiB RSS limit. Corpus caches carry useful inputs forward; artifacts preserve crashes and corpora for seven days. Fixed findings need focused deterministic regressions.
+`BUILD_FUZZING=ON` adds `fuzz_json`, `fuzz_yaml` and `fuzz_encoding`, with target-local libFuzzer instrumentation plus the existing ASan/fatal UBSan protections. It requires `ENABLE_SANITIZERS=ON` and a Clang distribution shipping libFuzzer (the host's Apple clang 21 does not; Homebrew LLVM does). See the [developer reference](docs/development.md#native-ci-and-bounded-fuzzing) for local commands. Linux CI lints all three fuzz translation units, then runs each for 15 seconds with a two-second per-input timeout, 1024-byte input limit and 2 GiB RSS limit. Corpus caches carry useful inputs forward; artifacts preserve crashes and corpora for seven days. Fixed findings need focused deterministic regressions.
 
 ## C++ Memory Safety
 
