@@ -2,7 +2,7 @@
 
 The thirteen flat `packages/<key>/` trees are independently consumable vcpkg overlay ports. Each contains its manifest, header, CMake config, ISC license, and any owned vendor files. Original code is ISC; bundled upstream notices remain in the distributed vendor headers/licenses.
 
-All thirteen packages are published at version `0.1.1` in the public Git registry, baseline `03ae9f4bbb05beedd08cb9cc4775c0f0a8c3344f`, using source commit `9587f5015b7997dea6bbdf02a2ab0c760388e6e8`. The release passed Debug, Release and lint checks before version writes. The real Brave history MCP resolved, built and passed tests using this baseline with local overlays disabled. See the [consumer configuration](../README.md#dependencies).
+All thirteen packages are published in the public Git registry. Baseline `91b48cf91739dc622f97c6dd8f0c0f54c367ce43`, source commit `bdf5b5c786aec6dc5aae5c0d54561667529dcc97`, contains `slimr-proc` `0.1.2` and the other packages at `0.1.1`. Releases passed Debug, Release and lint checks before version writes. The real Brave history MCP resolved, built and passed tests against both registry baselines with local overlays disabled. See the [consumer configuration](../README.md#dependencies).
 
 ## One publishing entry point
 
@@ -36,6 +36,8 @@ For every package in the release set, the publisher runs `just test-pkg <key>`, 
 After checks, the publisher writes versions/constraints and commits only the release-set package paths. It then reads the real committed package trees, prepends immutable entries in `versions/s-/slimr-<key>.json`, preserves existing history and unrelated baseline entries, and commits the exact registry metadata paths. Missing first-release metadata is initialized only at this stage, never from uncommitted trees. Both commits include the Copilot coauthor trailer. Unrelated working-tree and staged changes are neither stashed nor included.
 
 The current branch must have a configured upstream remote/branch and exactly one push URL. The publisher pushes `HEAD` explicitly to that configured branch and reports the full metadata commit as the consumer baseline only after push success. Inspect the preview carefully: existing branch history is also pushed, not just the two new commits.
+
+When the default branch is protected, publish from a release branch with a configured upstream and merge its pull request after required checks pass. The publisher does not bypass branch rules.
 
 On failure, the publisher reports its phase, known source/metadata commit SHAs, observed HEAD and push outcome. Version writes, staged changes or local commits may remain; a failed push can have an uncertain remote outcome. Nothing claims to roll back. Inspect the tree, index and remote before retrying; do not blindly rerun a partially completed release.
 

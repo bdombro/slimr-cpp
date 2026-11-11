@@ -60,7 +60,7 @@ A consumer declares only the packages it uses:
 
 `slimr-sqlite` brings in JSON and FTS5-enabled SQLite, not unrelated MCP, HTTP, YAML, or test libraries. WebSocket consumers explicitly request curl's `websockets` feature. Package tests use an optional `tests` feature, keeping doctest out of production dependency closures.
 
-All thirteen packages are published at version `0.1.1`. No manual slimr-cpp checkout is needed: add this `vcpkg-configuration.json` alongside the app manifest:
+All thirteen packages are published: `slimr-proc` is `0.1.2`, and the others are `0.1.1`. No manual slimr-cpp checkout is needed: add this `vcpkg-configuration.json` alongside the app manifest:
 
 ```json
 {
@@ -71,7 +71,7 @@ All thirteen packages are published at version `0.1.1`. No manual slimr-cpp chec
   "registries": [{
     "kind": "git",
     "repository": "https://github.com/bdombro/slimr-cpp.git",
-    "baseline": "03ae9f4bbb05beedd08cb9cc4775c0f0a8c3344f",
+    "baseline": "91b48cf91739dc622f97c6dd8f0c0f54c367ce43",
     "packages": ["slimr-*"]
   }]
 }
