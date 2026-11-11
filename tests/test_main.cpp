@@ -327,8 +327,29 @@ struct AddInput {
     Field<int, "Second operand"> b;
 };
 
+namespace {
+
+Json make_mcp_meta(std::string_view version = kMcpProtocolVersion) {
+    Json meta = json_obj();
+    meta["io.modelcontextprotocol/protocolVersion"] = std::string(version);
+    meta["io.modelcontextprotocol/clientCapabilities"] = json_obj();
+    return meta;
+}
+
+Json make_mcp_req(Json id, std::string_view method, Json params = json_obj()) {
+    params["_meta"] = make_mcp_meta();
+    Json req = json_obj();
+    req["jsonrpc"] = "2.0";
+    req["id"] = std::move(id);
+    req["method"] = std::string(method);
+    req["params"] = std::move(params);
+    return req;
+}
+
+} // namespace
+
 TEST_SUITE("MCP Protocol & CLI") {
-    TEST_CASE("PluginApp initialize and tools/list") {
+    TEST_CASE("PluginApp server/discover and tools/list") {
         PluginApp app("test-app", "1.2.3");
         app.instructions = "Test instructions for agent";
         app.resources.push_back(Resource{
@@ -340,41 +361,32 @@ TEST_SUITE("MCP Protocol & CLI") {
         });
 
         app.tool<AddInput>("add", "Adds two numbers", [](const AddInput& in) {
-            Json res = Json::object_t{};
+            Json res = json_obj();
             res["sum"] = in.a.get() + in.b.get();
             return res;
         });
 
-        // Initialize
-        Json initReq = Json::object_t{};
+        // server/discover
+        Json discoverResp = app.dispatchMcpJson(make_mcp_req(1, "server/discover"));
+        CHECK(discoverResp["jsonrpc"].get<std::string>() == "2.0");
+        CHECK(discoverResp["result"]["resultType"].get<std::string>() == "complete");
+        CHECK(discoverResp["result"]["supportedVersions"][0].get<std::string>() == "2026-07-28");
+        CHECK(discoverResp["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"].get<std::string>() == "test-app");
+        CHECK(discoverResp["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["version"].get<std::string>() == "1.2.3");
+        CHECK(discoverResp["result"]["instructions"].get<std::string>() == "Test instructions for agent");
+
+        // Reject legacy initialize
+        Json initReq = json_obj();
         initReq["jsonrpc"] = "2.0";
-        initReq["id"] = 1;
+        initReq["id"] = 2;
         initReq["method"] = "initialize";
-        initReq["params"]["protocolVersion"] = "2025-11-25";
-
         Json initResp = app.dispatchMcpJson(initReq);
-        CHECK(initResp["jsonrpc"].get<std::string>() == "2.0");
-        CHECK(initResp["result"]["protocolVersion"].get<std::string>() == "2025-11-25");
-        CHECK(initResp["result"]["serverInfo"]["name"].get<std::string>() == "test-app");
-        CHECK(initResp["result"]["serverInfo"]["version"].get<std::string>() == "1.2.3");
-        CHECK(initResp["result"]["instructions"].get<std::string>() == "Test instructions for agent");
-
-        // Ping
-        Json pingReq = Json::object_t{};
-        pingReq["jsonrpc"] = "2.0";
-        pingReq["id"] = 2;
-        pingReq["method"] = "ping";
-        Json pingResp = app.dispatchMcpJson(pingReq);
-        CHECK(pingResp["jsonrpc"].get<std::string>() == "2.0");
-        CHECK(pingResp["id"].get<int64_t>() == 2);
+        CHECK(initResp["error"]["code"].get<int64_t>() == McpErrorCode::MethodNotFound);
 
         // tools/list (should include 'add' and auto-added 'mcp_resource_read')
-        Json listReq = Json::object_t{};
-        listReq["jsonrpc"] = "2.0";
-        listReq["id"] = 3;
-        listReq["method"] = "tools/list";
-        Json listResp = app.dispatchMcpJson(listReq);
-        auto tools = listResp["result"]["tools"].get<Json::array_t>();
+        Json listResp = app.dispatchMcpJson(make_mcp_req(3, "tools/list"));
+        CHECK(listResp["result"]["resultType"].get<std::string>() == "complete");
+        auto tools = listResp["result"]["tools"].get_array();
         CHECK(tools.size() == 2);
 
         bool foundAdd = false;
@@ -392,7 +404,7 @@ TEST_SUITE("MCP Protocol & CLI") {
         PluginApp app("media-app");
 
         app.tool<AddInput>("add", "Adds two numbers", [](const AddInput& in) {
-            Json res = Json::object_t{};
+            Json res = json_obj();
             res["sum"] = in.a.get() + in.b.get();
             return res;
         });
@@ -401,33 +413,23 @@ TEST_SUITE("MCP Protocol & CLI") {
             return McpResult::image("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "image/png");
         });
 
-        // Call add
-        Json callAdd = Json::object_t{};
-        callAdd["jsonrpc"] = "2.0";
-        callAdd["id"] = 10;
-        callAdd["method"] = "tools/call";
-        callAdd["params"]["name"] = "add";
-        callAdd["params"]["arguments"]["a"] = 20;
-        callAdd["params"]["arguments"]["b"] = 22;
-
-        Json addResp = app.dispatchMcpJson(callAdd);
+        Json addParams = json_obj();
+        addParams["name"] = "add";
+        addParams["arguments"]["a"] = 20;
+        addParams["arguments"]["b"] = 22;
+        Json addResp = app.dispatchMcpJson(make_mcp_req(10, "tools/call", std::move(addParams)));
         CHECK(addResp["result"]["isError"].get<bool>() == false);
-        auto contents = addResp["result"]["content"].get<Json::array_t>();
+        auto contents = addResp["result"]["content"].get_array();
         CHECK(contents.size() == 1);
         CHECK(contents[0]["type"].get<std::string>() == "text");
         CHECK(contents[0]["text"].get<std::string>().find("\"sum\":42") != std::string::npos);
 
-        // Call get_image
-        Json callImg = Json::object_t{};
-        callImg["jsonrpc"] = "2.0";
-        callImg["id"] = 11;
-        callImg["method"] = "tools/call";
-        callImg["params"]["name"] = "get_image";
-        callImg["params"]["arguments"] = Json::object_t{};
-
-        Json imgResp = app.dispatchMcpJson(callImg);
+        Json imgParams = json_obj();
+        imgParams["name"] = "get_image";
+        imgParams["arguments"] = json_obj();
+        Json imgResp = app.dispatchMcpJson(make_mcp_req(11, "tools/call", std::move(imgParams)));
         CHECK(imgResp["result"]["isError"].get<bool>() == false);
-        auto imgContents = imgResp["result"]["content"].get<Json::array_t>();
+        auto imgContents = imgResp["result"]["content"].get_array();
         CHECK(imgContents.size() == 1);
         CHECK(imgContents[0]["type"].get<std::string>() == "image");
         CHECK(imgContents[0]["mimeType"].get<std::string>() == "image/png");
@@ -444,80 +446,31 @@ TEST_SUITE("MCP Protocol & CLI") {
             .load = []() { return "# Intro Header"; }
         });
 
-        // resources/list
-        Json listReq = Json::object_t{};
-        listReq["jsonrpc"] = "2.0";
-        listReq["id"] = 20;
-        listReq["method"] = "resources/list";
-        Json listResp = app.dispatchMcpJson(listReq);
-        auto resArr = listResp["result"]["resources"].get<Json::array_t>();
+        Json listResp = app.dispatchMcpJson(make_mcp_req(20, "resources/list"));
+        auto resArr = listResp["result"]["resources"].get_array();
         CHECK(resArr.size() == 1);
         CHECK(resArr[0]["uri"].get<std::string>() == "docs://intro");
 
-        // resources/read
-        Json readReq = Json::object_t{};
-        readReq["jsonrpc"] = "2.0";
-        readReq["id"] = 21;
-        readReq["method"] = "resources/read";
-        readReq["params"]["uri"] = "docs://intro";
-        Json readResp = app.dispatchMcpJson(readReq);
-        auto contents = readResp["result"]["contents"].get<Json::array_t>();
+        Json readParams = json_obj();
+        readParams["uri"] = "docs://intro";
+        Json readResp = app.dispatchMcpJson(make_mcp_req(21, "resources/read", std::move(readParams)));
+        auto contents = readResp["result"]["contents"].get_array();
         CHECK(contents.size() == 1);
         CHECK(contents[0]["text"].get<std::string>() == "# Intro Header");
 
-        // tools/call with mcp_resource_read
-        Json toolCallReq = Json::object_t{};
-        toolCallReq["jsonrpc"] = "2.0";
-        toolCallReq["id"] = 22;
-        toolCallReq["method"] = "tools/call";
-        toolCallReq["params"]["name"] = "mcp_resource_read";
-        toolCallReq["params"]["arguments"]["uri"] = "docs://intro";
-        Json toolCallResp = app.dispatchMcpJson(toolCallReq);
+        Json toolCallParams = json_obj();
+        toolCallParams["name"] = "mcp_resource_read";
+        toolCallParams["arguments"]["uri"] = "docs://intro";
+        Json toolCallResp = app.dispatchMcpJson(make_mcp_req(22, "tools/call", std::move(toolCallParams)));
         CHECK(toolCallResp["result"]["isError"].get<bool>() == false);
-        auto toolContents = toolCallResp["result"]["content"].get<Json::array_t>();
+        auto toolContents = toolCallResp["result"]["content"].get_array();
         CHECK(toolContents[0]["text"].get<std::string>() == "# Intro Header");
-    }
-
-    TEST_CASE("Gateway multi-plugin mounting and routing") {
-        PluginApp notesApp("obsidian");
-        notesApp.instructions = "Notes instructions";
-        notesApp.tool<std::monostate>("read", "Reads note", [](const std::monostate&) {
-            return "note content";
-        });
-
-        PluginApp logApp("personal-log");
-        logApp.instructions = "Log instructions";
-        logApp.tool<std::monostate>("search", "Searches log", [](const std::monostate&) {
-            return "log entry";
-        });
-
-        Gateway gw;
-        gw.mount("notes", notesApp);
-        gw.mount("log", logApp);
-
-        CHECK(gw.tools().contains("notes_read"));
-        CHECK(gw.tools().contains("log_search"));
-        CHECK(gw.instructions.find("## notes\nNotes instructions") != std::string::npos);
-        CHECK(gw.instructions.find("## log\nLog instructions") != std::string::npos);
-
-        // Dispatch call to notes_read
-        Json callNotes = Json::object_t{};
-        callNotes["jsonrpc"] = "2.0";
-        callNotes["id"] = 30;
-        callNotes["method"] = "tools/call";
-        callNotes["params"]["name"] = "notes_read";
-        callNotes["params"]["arguments"] = Json::object_t{};
-
-        Json notesResp = gw.dispatchMcpJson(callNotes);
-        CHECK(notesResp["result"]["isError"].get<bool>() == false);
-        auto contents = notesResp["result"]["content"].get<Json::array_t>();
-        CHECK(contents[0]["text"].get<std::string>() == "note content");
     }
 
     TEST_CASE("CLI direct invocation") {
         PluginApp app("cli-app");
         app.tool<AddInput>("add", "Adds two numbers", [](const AddInput& in) {
-            Json res = Json::object_t{};
+            Json res = json_obj();
             res["result"] = in.a.get() + in.b.get();
             return res;
         });

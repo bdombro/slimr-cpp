@@ -17,13 +17,20 @@
     }
   ],
   "features": {
+    "http": {
+      "description": "Streamable HTTP and OAuth resource-server support via libhv",
+      "dependencies": [
+        "libhv"
+      ]
+    },
     "tests": {
       "description": "Dependencies for the standalone test suite",
       "dependencies": [
         {
           "name": "slimr-test",
           "version>=": "0.1.1"
-        }
+        },
+        "libhv"
       ]
     }
   }

@@ -4,8 +4,11 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <list>
 #include <map>
 #include <memory>
@@ -14,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -61,6 +65,59 @@ struct SqliteOptions {
 
 namespace detail {
 
+template <typename T>
+struct is_optional : std::false_type {};
+template <typename U>
+struct is_optional<std::optional<U>> : std::true_type {};
+template <typename T>
+inline constexpr bool is_optional_v = is_optional<T>::value;
+
+inline int checked_sqlite_len(size_t n, std::string_view context) {
+    if (n > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        throw std::length_error(std::string(context) + ": byte length exceeds INT_MAX");
+    }
+    return static_cast<int>(n);
+}
+
+inline std::string read_text_column(sqlite3_stmt* stmt, int col) {
+    const char* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, col));
+    int bytes = sqlite3_column_bytes(stmt, col);
+    if (!txt || bytes <= 0) {
+        return {};
+    }
+    return std::string(txt, static_cast<size_t>(bytes));
+}
+
+inline std::vector<uint8_t> read_blob_column(sqlite3_stmt* stmt, int col) {
+    const uint8_t* blob = reinterpret_cast<const uint8_t*>(sqlite3_column_blob(stmt, col));
+    int bytes = sqlite3_column_bytes(stmt, col);
+    if (!blob || bytes <= 0) {
+        return {};
+    }
+    return std::vector<uint8_t>(blob, blob + bytes);
+}
+
+inline bool is_file_database_path(std::string_view path) noexcept {
+    if (path.empty() || path == ":memory:") {
+        return false;
+    }
+    if (path.starts_with("file::memory:")) {
+        return false;
+    }
+    if (path.find("mode=memory") != std::string_view::npos) {
+        return false;
+    }
+    return true;
+}
+
+inline std::string ascii_lower(std::string_view s) {
+    std::string out(s);
+    for (char& ch : out) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return out;
+}
+
 inline void throw_sqlite(sqlite3* db, std::string_view msg) {
     std::string err = std::string(msg);
     if (db) {
@@ -81,9 +138,11 @@ inline void bind_one(sqlite3* db, sqlite3_stmt* stmt, int idx, const SqlValue& v
         } else if constexpr (std::is_same_v<T, double>) {
             rc = sqlite3_bind_double(stmt, idx, v);
         } else if constexpr (std::is_same_v<T, std::string>) {
-            rc = sqlite3_bind_text(stmt, idx, v.data(), static_cast<int>(v.size()), SQLITE_TRANSIENT);
+            int len = checked_sqlite_len(v.size(), "sqlite3_bind_text");
+            rc = sqlite3_bind_text(stmt, idx, v.data(), len, SQLITE_TRANSIENT);
         } else if constexpr (std::is_same_v<T, std::vector<uint8_t>>) {
-            rc = sqlite3_bind_blob(stmt, idx, v.data(), static_cast<int>(v.size()), SQLITE_TRANSIENT);
+            int len = checked_sqlite_len(v.size(), "sqlite3_bind_blob");
+            rc = sqlite3_bind_blob(stmt, idx, v.data(), len, SQLITE_TRANSIENT);
         } else if constexpr (std::is_same_v<T, bool>) {
             rc = sqlite3_bind_int(stmt, idx, v ? 1 : 0);
         }
@@ -138,15 +197,13 @@ inline Json row_to_json(sqlite3_stmt* stmt) {
             case SQLITE_FLOAT:
                 row[key] = sqlite3_column_double(stmt, i);
                 break;
-            case SQLITE_TEXT: {
-                const char* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, i));
-                row[key] = std::string(txt ? txt : "");
+            case SQLITE_TEXT:
+                row[key] = read_text_column(stmt, i);
                 break;
-            }
             case SQLITE_BLOB: {
                 const char* blob = reinterpret_cast<const char*>(sqlite3_column_blob(stmt, i));
                 int bytes = sqlite3_column_bytes(stmt, i);
-                row[key] = std::string(blob ? blob : "", bytes);
+                row[key] = (blob && bytes > 0) ? std::string(blob, static_cast<size_t>(bytes)) : std::string{};
                 break;
             }
             case SQLITE_NULL:
@@ -160,45 +217,75 @@ inline Json row_to_json(sqlite3_stmt* stmt) {
 
 template <typename T>
 inline T column_to_val(sqlite3_stmt* stmt, int col) {
-    if constexpr (std::is_same_v<T, int64_t>) {
-        return sqlite3_column_int64(stmt, col);
-    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
-        return static_cast<T>(sqlite3_column_int64(stmt, col));
-    } else if constexpr (std::is_same_v<T, double> || std::is_floating_point_v<T>) {
-        return sqlite3_column_double(stmt, col);
-    } else if constexpr (std::is_same_v<T, bool>) {
-        return sqlite3_column_int(stmt, col) != 0;
-    } else if constexpr (std::is_same_v<T, std::string>) {
-        const char* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, col));
-        return std::string(txt ? txt : "");
+    int type = sqlite3_column_type(stmt, col);
+    if constexpr (is_optional_v<T>) {
+        using Inner = typename T::value_type;
+        if (type == SQLITE_NULL) {
+            return std::nullopt;
+        }
+        return column_to_val<Inner>(stmt, col);
     } else if constexpr (std::is_same_v<T, SqlValue>) {
-        int type = sqlite3_column_type(stmt, col);
         switch (type) {
             case SQLITE_INTEGER: return sqlite3_column_int64(stmt, col);
             case SQLITE_FLOAT: return sqlite3_column_double(stmt, col);
-            case SQLITE_TEXT: {
-                const char* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, col));
-                return std::string(txt ? txt : "");
-            }
-            case SQLITE_BLOB: {
-                const uint8_t* blob = reinterpret_cast<const uint8_t*>(sqlite3_column_blob(stmt, col));
-                int bytes = sqlite3_column_bytes(stmt, col);
-                return std::vector<uint8_t>(blob, blob + bytes);
-            }
+            case SQLITE_TEXT: return read_text_column(stmt, col);
+            case SQLITE_BLOB: return read_blob_column(stmt, col);
             case SQLITE_NULL:
             default:
                 return std::monostate{};
         }
+    } else if constexpr (std::is_same_v<T, int64_t>) {
+        if (type != SQLITE_INTEGER) {
+            throw std::runtime_error("SQLite column type mismatch: expected INTEGER for int64_t");
+        }
+        return sqlite3_column_int64(stmt, col);
+    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
+        if (type != SQLITE_INTEGER) {
+            throw std::runtime_error("SQLite column type mismatch: expected INTEGER");
+        }
+        int64_t raw = sqlite3_column_int64(stmt, col);
+        if (!std::in_range<T>(raw)) {
+            throw std::overflow_error("SQLite integer value out of range for target type: " + std::to_string(raw));
+        }
+        return static_cast<T>(raw);
+    } else if constexpr (std::is_same_v<T, double> || std::is_floating_point_v<T>) {
+        if (type != SQLITE_FLOAT && type != SQLITE_INTEGER) {
+            throw std::runtime_error("SQLite column type mismatch: expected FLOAT or INTEGER");
+        }
+        return static_cast<T>(sqlite3_column_double(stmt, col));
+    } else if constexpr (std::is_same_v<T, bool>) {
+        if (type != SQLITE_INTEGER) {
+            throw std::runtime_error("SQLite column type mismatch: expected INTEGER for bool");
+        }
+        return sqlite3_column_int64(stmt, col) != 0;
+    } else if constexpr (std::is_same_v<T, std::string>) {
+        if (type != SQLITE_TEXT) {
+            throw std::runtime_error("SQLite column type mismatch: expected TEXT for std::string");
+        }
+        return read_text_column(stmt, col);
+    } else if constexpr (std::is_same_v<T, std::vector<uint8_t>>) {
+        if (type != SQLITE_BLOB) {
+            throw std::runtime_error("SQLite column type mismatch: expected BLOB");
+        }
+        return read_blob_column(stmt, col);
     } else {
         // Fallback for custom types or Json
         Json j = row_to_json(stmt);
         const char* name = sqlite3_column_name(stmt, col);
         std::string key = name ? name : "";
-        std::string s;
-        (void)glz::write_json(j[key], s);
-        T res{};
-        (void)glz::read_json(res, s);
-        return res;
+        if constexpr (std::is_same_v<T, Json>) {
+            return j[key];
+        } else {
+            std::string s;
+            if (auto werr = glz::write_json(j[key], s)) {
+                throw std::runtime_error("SQLite JSON serialization error during column conversion");
+            }
+            T res{};
+            if (auto rerr = glz::read_json(res, s)) {
+                throw std::runtime_error("SQLite JSON conversion error: " + glz::format_error(rerr, s));
+            }
+            return res;
+        }
     }
 }
 
@@ -291,16 +378,16 @@ public:
 
     template <typename T = Json>
     std::optional<T> get(std::string_view sql, const std::vector<SqlValue>& params = {}) {
-        auto rows = all<T>(sql, params);
-        if (rows.empty()) return std::nullopt;
-        return std::move(rows[0]);
+        return query_first_row<T>(sql, [&](sqlite3_stmt* stmt) {
+            detail::bind_params(db_, stmt, params);
+        });
     }
 
     template <typename T = Json>
     std::optional<T> get(std::string_view sql, const std::map<std::string, SqlValue>& params) {
-        auto rows = all<T>(sql, params);
-        if (rows.empty()) return std::nullopt;
-        return std::move(rows[0]);
+        return query_first_row<T>(sql, [&](sqlite3_stmt* stmt) {
+            detail::bind_params(db_, stmt, params);
+        });
     }
 
     template <typename T = Json>
@@ -319,16 +406,16 @@ public:
 
     template <typename T = SqlValue>
     std::optional<T> pluck(std::string_view sql, const std::vector<SqlValue>& params = {}) {
-        auto vals = pluckAll<T>(sql, params);
-        if (vals.empty()) return std::nullopt;
-        return std::move(vals[0]);
+        return query_first_pluck<T>(sql, [&](sqlite3_stmt* stmt) {
+            detail::bind_params(db_, stmt, params);
+        });
     }
 
     template <typename T = SqlValue>
     std::optional<T> pluck(std::string_view sql, const std::map<std::string, SqlValue>& params) {
-        auto vals = pluckAll<T>(sql, params);
-        if (vals.empty()) return std::nullopt;
-        return std::move(vals[0]);
+        return query_first_pluck<T>(sql, [&](sqlite3_stmt* stmt) {
+            detail::bind_params(db_, stmt, params);
+        });
     }
 
     template <typename T = SqlValue>
@@ -441,33 +528,33 @@ public:
     }
 
     void backup(std::string_view destPath) {
-        if (destPath != ":memory:") {
+        if (detail::is_file_database_path(destPath)) {
             std::filesystem::path p(destPath);
             if (p.has_parent_path()) {
                 std::filesystem::create_directories(p.parent_path());
             }
         }
-        sqlite3* destDb = nullptr;
-        int rc = sqlite3_open(std::string(destPath).c_str(), &destDb);
-        if (rc != SQLITE_OK) {
-            std::string err = destDb ? sqlite3_errmsg(destDb) : "failed to open backup destination";
-            if (destDb) sqlite3_close(destDb);
-            throw std::runtime_error("Backup failed: " + err);
+        sqlite3* rawDest = nullptr;
+        int rc = sqlite3_open(std::string(destPath).c_str(), &rawDest);
+        std::unique_ptr<sqlite3, decltype(&sqlite3_close)> destDb(rawDest, &sqlite3_close);
+        if (rc != SQLITE_OK || !destDb) {
+            detail::throw_sqlite(destDb.get(), "Backup failed");
         }
 
-        sqlite3_backup* pBackup = sqlite3_backup_init(destDb, "main", db_, "main");
+        std::unique_ptr<sqlite3_backup, decltype(&sqlite3_backup_finish)> pBackup(
+            sqlite3_backup_init(destDb.get(), "main", db_, "main"),
+            &sqlite3_backup_finish);
         if (!pBackup) {
-            std::string err = sqlite3_errmsg(destDb);
-            sqlite3_close(destDb);
-            throw std::runtime_error("sqlite3_backup_init failed: " + err);
+            detail::throw_sqlite(destDb.get(), "sqlite3_backup_init failed");
         }
 
-        rc = sqlite3_backup_step(pBackup, -1);
-        (void)sqlite3_backup_finish(pBackup);
-        sqlite3_close(destDb);
-
+        rc = sqlite3_backup_step(pBackup.get(), -1);
+        int finishRc = sqlite3_backup_finish(pBackup.release());
         if (rc != SQLITE_DONE) {
-            throw std::runtime_error("Backup step did not complete cleanly: rc=" + std::to_string(rc));
+            detail::throw_sqlite(destDb.get(), "Backup step did not complete cleanly (rc=" + std::to_string(rc) + ")");
+        }
+        if (finishRc != SQLITE_OK) {
+            detail::throw_sqlite(destDb.get(), "Backup finish failed");
         }
     }
 
@@ -498,7 +585,7 @@ private:
     static constexpr size_t kMaxCacheSize = 256;
 
     void open_db() {
-        if (!options_.readOnly && path_ != ":memory:") {
+        if (!options_.readOnly && detail::is_file_database_path(path_)) {
             std::filesystem::path p(path_);
             if (p.has_parent_path()) {
                 std::filesystem::create_directories(p.parent_path());
@@ -507,27 +594,49 @@ private:
 
         int flags = options_.readOnly ? (SQLITE_OPEN_READONLY | SQLITE_OPEN_URI)
                                       : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_URI);
-        int rc = sqlite3_open_v2(path_.c_str(), &db_, flags, nullptr);
-        if (rc != SQLITE_OK) {
-            detail::throw_sqlite(db_, "Failed to open SQLite database at " + path_);
-        }
+        sqlite3* raw = nullptr;
+        int rc = sqlite3_open_v2(path_.c_str(), &raw, flags, nullptr);
+        db_ = raw;
+        try {
+            if (rc != SQLITE_OK || !db_) {
+                detail::throw_sqlite(db_, "Failed to open SQLite database at " + path_);
+            }
 
-        if (!options_.readOnly) {
             if (options_.enableDefaultPragmas) {
                 exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA temp_store = MEMORY;");
-                if (path_ != ":memory:") {
-                    try {
-                        exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
-                    } catch (...) {}
+                if (pluck<int64_t>("PRAGMA busy_timeout;").value_or(0) < 5000) {
+                    throw std::runtime_error("Failed to verify SQLite PRAGMA busy_timeout >= 5000");
+                }
+                if (pluck<int64_t>("PRAGMA foreign_keys;").value_or(0) != 1) {
+                    throw std::runtime_error("Failed to verify SQLite PRAGMA foreign_keys = ON");
+                }
+                if (pluck<int64_t>("PRAGMA temp_store;").value_or(0) != 2) {
+                    throw std::runtime_error("Failed to verify SQLite PRAGMA temp_store = MEMORY");
+                }
+
+                if (!options_.readOnly && detail::is_file_database_path(path_)) {
+                    auto jm = pluck<std::string>("PRAGMA journal_mode = WAL;");
+                    if (!jm || detail::ascii_lower(*jm) != "wal") {
+                        throw std::runtime_error("Failed to enable SQLite WAL journal_mode (got '" +
+                                                 jm.value_or("<none>") + "')");
+                    }
+                    exec("PRAGMA synchronous = NORMAL;");
+                    if (pluck<int64_t>("PRAGMA synchronous;").value_or(-1) != 1) {
+                        throw std::runtime_error("Failed to verify SQLite PRAGMA synchronous = NORMAL");
+                    }
                 }
             }
+
             if (options_.pragmas.has_value() && !options_.pragmas->empty()) {
                 exec(*options_.pragmas);
             }
-        }
 
-        if (options_.migrations.has_value()) {
-            run_migrations(*options_.migrations);
+            if (!options_.readOnly && options_.migrations.has_value()) {
+                run_migrations(*options_.migrations);
+            }
+        } catch (...) {
+            close();
+            throw;
         }
     }
 
@@ -594,7 +703,7 @@ private:
             [](sqlite3_context* ctx, int argc, sqlite3_value** argv) {
                 auto* fn = static_cast<std::function<SqlValue(const std::vector<SqlValue>&)>*>(sqlite3_user_data(ctx));
                 std::vector<SqlValue> args;
-                args.reserve(argc);
+                args.reserve(static_cast<size_t>(argc));
                 for (int i = 0; i < argc; ++i) {
                     int type = sqlite3_value_type(argv[i]);
                     switch (type) {
@@ -606,13 +715,14 @@ private:
                             break;
                         case SQLITE_TEXT: {
                             const char* txt = reinterpret_cast<const char*>(sqlite3_value_text(argv[i]));
-                            args.emplace_back(std::string(txt ? txt : ""));
+                            int bytes = sqlite3_value_bytes(argv[i]);
+                            args.emplace_back((txt && bytes > 0) ? std::string(txt, static_cast<size_t>(bytes)) : std::string{});
                             break;
                         }
                         case SQLITE_BLOB: {
                             const uint8_t* blob = reinterpret_cast<const uint8_t*>(sqlite3_value_blob(argv[i]));
                             int bytes = sqlite3_value_bytes(argv[i]);
-                            args.emplace_back(std::vector<uint8_t>(blob, blob + bytes));
+                            args.emplace_back((blob && bytes > 0) ? std::vector<uint8_t>(blob, blob + bytes) : std::vector<uint8_t>{});
                             break;
                         }
                         case SQLITE_NULL:
@@ -632,9 +742,11 @@ private:
                         } else if constexpr (std::is_same_v<T, double>) {
                             sqlite3_result_double(ctx, v);
                         } else if constexpr (std::is_same_v<T, std::string>) {
-                            sqlite3_result_text(ctx, v.data(), static_cast<int>(v.size()), SQLITE_TRANSIENT);
+                            int len = detail::checked_sqlite_len(v.size(), "sqlite3_result_text");
+                            sqlite3_result_text(ctx, v.data(), len, SQLITE_TRANSIENT);
                         } else if constexpr (std::is_same_v<T, std::vector<uint8_t>>) {
-                            sqlite3_result_blob(ctx, v.data(), static_cast<int>(v.size()), SQLITE_TRANSIENT);
+                            int len = detail::checked_sqlite_len(v.size(), "sqlite3_result_blob");
+                            sqlite3_result_blob(ctx, v.data(), len, SQLITE_TRANSIENT);
                         } else if constexpr (std::is_same_v<T, bool>) {
                             sqlite3_result_int(ctx, v ? 1 : 0);
                         }
@@ -657,6 +769,7 @@ private:
     }
 
     sqlite3_stmt* checkout_statement(std::string_view sql, bool& is_temporary) {
+        int sql_len = detail::checked_sqlite_len(sql.size(), "sqlite3_prepare_v2");
         std::string sql_str(sql);
         auto it = lru_map_.find(sql_str);
         if (it != lru_map_.end()) {
@@ -673,8 +786,9 @@ private:
 
         // Prepare new
         sqlite3_stmt* stmt = nullptr;
-        int rc = sqlite3_prepare_v2(db_, sql_str.c_str(), -1, &stmt, nullptr);
+        int rc = sqlite3_prepare_v2(db_, sql_str.c_str(), sql_len, &stmt, nullptr);
         if (rc != SQLITE_OK) {
+            if (stmt) sqlite3_finalize(stmt);
             detail::throw_sqlite(db_, "Prepare failed for SQL: " + sql_str);
         }
 
@@ -685,10 +799,19 @@ private:
         }
 
         if (lru_list_.size() >= kMaxCacheSize) {
-            auto& back = lru_list_.back();
-            lru_map_.erase(back.sql);
-            if (back.stmt) sqlite3_finalize(back.stmt);
-            lru_list_.pop_back();
+            // Evict the least-recently-used statement that is not currently in use.
+            auto evict_it = std::find_if(lru_list_.rbegin(), lru_list_.rend(), [](const CacheEntry& e) {
+                return !e.in_use;
+            });
+            if (evict_it == lru_list_.rend()) {
+                // Every cached statement is actively in use (e.g., deep re-entrancy).
+                is_temporary = true;
+                return stmt;
+            }
+            auto fwd = std::prev(evict_it.base());
+            lru_map_.erase(fwd->sql);
+            if (fwd->stmt) sqlite3_finalize(fwd->stmt);
+            lru_list_.erase(fwd);
         }
 
         lru_list_.push_front(CacheEntry{sql_str, stmt, true});
@@ -721,8 +844,26 @@ private:
         lru_map_.clear();
     }
 
-    template <typename T, typename Binder>
-    std::vector<T> query_rows(std::string_view sql, Binder&& binder) {
+    template <typename T>
+    static T extract_row(sqlite3_stmt* stmt) {
+        if constexpr (std::is_same_v<T, Json>) {
+            return detail::row_to_json(stmt);
+        } else {
+            Json j = detail::row_to_json(stmt);
+            std::string s;
+            if (auto werr = glz::write_json(j, s)) {
+                throw std::runtime_error("SQLite row JSON serialization failed");
+            }
+            T val{};
+            if (auto rerr = glz::read_json(val, s)) {
+                throw std::runtime_error("SQLite row JSON conversion failed: " + glz::format_error(rerr, s));
+            }
+            return val;
+        }
+    }
+
+    template <typename T, typename Binder, typename Extractor>
+    std::vector<T> step_query(std::string_view sql, Binder&& binder, Extractor&& extract, bool single_row) {
         bool is_temp = false;
         sqlite3_stmt* stmt = checkout_statement(sql, is_temp);
         std::vector<T> results;
@@ -731,15 +872,9 @@ private:
             while (true) {
                 int rc = sqlite3_step(stmt);
                 if (rc == SQLITE_ROW) {
-                    if constexpr (std::is_same_v<T, Json>) {
-                        results.push_back(detail::row_to_json(stmt));
-                    } else {
-                        Json j = detail::row_to_json(stmt);
-                        std::string s;
-                        (void)glz::write_json(j, s);
-                        T val{};
-                        (void)glz::read_json(val, s);
-                        results.push_back(std::move(val));
+                    results.push_back(extract(stmt));
+                    if (single_row) {
+                        break;
                     }
                 } else if (rc == SQLITE_DONE) {
                     break;
@@ -756,28 +891,35 @@ private:
     }
 
     template <typename T, typename Binder>
+    std::vector<T> query_rows(std::string_view sql, Binder&& binder) {
+        return step_query<T>(sql, std::forward<Binder>(binder), [](sqlite3_stmt* stmt) {
+            return extract_row<T>(stmt);
+        }, false);
+    }
+
+    template <typename T, typename Binder>
+    std::optional<T> query_first_row(std::string_view sql, Binder&& binder) {
+        auto rows = step_query<T>(sql, std::forward<Binder>(binder), [](sqlite3_stmt* stmt) {
+            return extract_row<T>(stmt);
+        }, true);
+        if (rows.empty()) return std::nullopt;
+        return std::move(rows[0]);
+    }
+
+    template <typename T, typename Binder>
     std::vector<T> query_pluck(std::string_view sql, Binder&& binder) {
-        bool is_temp = false;
-        sqlite3_stmt* stmt = checkout_statement(sql, is_temp);
-        std::vector<T> results;
-        try {
-            binder(stmt);
-            while (true) {
-                int rc = sqlite3_step(stmt);
-                if (rc == SQLITE_ROW) {
-                    results.push_back(detail::column_to_val<T>(stmt, 0));
-                } else if (rc == SQLITE_DONE) {
-                    break;
-                } else {
-                    detail::throw_sqlite(db_, "Step failed for pluck query");
-                }
-            }
-        } catch (...) {
-            return_statement(sql, stmt, is_temp);
-            throw;
-        }
-        return_statement(sql, stmt, is_temp);
-        return results;
+        return step_query<T>(sql, std::forward<Binder>(binder), [](sqlite3_stmt* stmt) {
+            return detail::column_to_val<T>(stmt, 0);
+        }, false);
+    }
+
+    template <typename T, typename Binder>
+    std::optional<T> query_first_pluck(std::string_view sql, Binder&& binder) {
+        auto vals = step_query<T>(sql, std::forward<Binder>(binder), [](sqlite3_stmt* stmt) {
+            return detail::column_to_val<T>(stmt, 0);
+        }, true);
+        if (vals.empty()) return std::nullopt;
+        return std::move(vals[0]);
     }
 
     template <typename Binder>
@@ -803,46 +945,14 @@ private:
 
     template <typename Binder>
     IterateResult execute_iterate(std::string_view sql, const IterateOptions& opts, Binder&& binder) {
+        int sql_len = detail::checked_sqlite_len(sql.size(), "sqlite3_prepare_v2");
         sqlite3* targetDb = db_;
         sqlite3* tempDb = nullptr;
-        bool resetQueryOnly = false;
-
-        if (opts.readOnlyConnection && path_ != ":memory:") {
-            int flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI;
-            int rc = sqlite3_open_v2(path_.c_str(), &tempDb, flags, nullptr);
-            if (rc != SQLITE_OK) {
-                detail::throw_sqlite(tempDb, "Failed to open read-only connection");
-            }
-            sqlite3_busy_timeout(tempDb, 5000);
-            for (const auto& [_, def] : functions_) {
-                register_function_internal(tempDb, def);
-            }
-            if (!opts.setupSql.empty()) {
-                char* err = nullptr;
-                sqlite3_exec(tempDb, opts.setupSql.c_str(), nullptr, nullptr, &err);
-                if (err) {
-                    std::string e = err;
-                    sqlite3_free(err);
-                    sqlite3_close(tempDb);
-                    throw std::runtime_error("setupSql failed on tempDb: " + e);
-                }
-            }
-            sqlite3_exec(tempDb, "PRAGMA query_only = ON;", nullptr, nullptr, nullptr);
-            targetDb = tempDb;
-        } else {
-            if (!opts.setupSql.empty()) {
-                exec(opts.setupSql);
-            }
-            if (opts.readOnlyConnection) {
-                exec("PRAGMA query_only = ON;");
-                resetQueryOnly = true;
-            }
-        }
 
         struct Guard {
-            sqlite3* temp;
-            sqlite3* target;
-            bool reset;
+            sqlite3* temp = nullptr;
+            sqlite3* target = nullptr;
+            bool reset = false;
             ~Guard() {
                 if (reset && target) {
                     sqlite3_exec(target, "PRAGMA query_only = OFF;", nullptr, nullptr, nullptr);
@@ -851,45 +961,81 @@ private:
                     sqlite3_close(temp);
                 }
             }
-        } guard{tempDb, targetDb, resetQueryOnly};
+        } guard;
 
-        sqlite3_stmt* stmt = nullptr;
-        int rc = sqlite3_prepare_v2(targetDb, std::string(sql).c_str(), -1, &stmt, nullptr);
-        if (rc != SQLITE_OK) {
+        if (opts.readOnlyConnection && detail::is_file_database_path(path_)) {
+            int flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI;
+            int rc = sqlite3_open_v2(path_.c_str(), &tempDb, flags, nullptr);
+            guard.temp = tempDb;
+            if (rc != SQLITE_OK || !tempDb) {
+                detail::throw_sqlite(tempDb, "Failed to open read-only connection");
+            }
+            sqlite3_busy_timeout(tempDb, 5000);
+            for (const auto& [_, def] : functions_) {
+                register_function_internal(tempDb, def);
+            }
+            if (!opts.setupSql.empty()) {
+                char* err = nullptr;
+                int execRc = sqlite3_exec(tempDb, opts.setupSql.c_str(), nullptr, nullptr, &err);
+                if (execRc != SQLITE_OK || err) {
+                    std::string e = err ? err : "setupSql failed";
+                    if (err) sqlite3_free(err);
+                    throw std::runtime_error("setupSql failed on tempDb: " + e);
+                }
+            }
+            char* qerr = nullptr;
+            int qrc = sqlite3_exec(tempDb, "PRAGMA query_only = ON;", nullptr, nullptr, &qerr);
+            if (qrc != SQLITE_OK || qerr) {
+                std::string e = qerr ? qerr : "PRAGMA query_only = ON failed";
+                if (qerr) sqlite3_free(qerr);
+                throw std::runtime_error(e);
+            }
+            targetDb = tempDb;
+        } else {
+            if (!opts.setupSql.empty()) {
+                exec(opts.setupSql);
+            }
+            if (opts.readOnlyConnection) {
+                exec("PRAGMA query_only = ON;");
+                guard.target = targetDb;
+                guard.reset = true;
+            }
+        }
+
+        sqlite3_stmt* raw_stmt = nullptr;
+        int rc = sqlite3_prepare_v2(targetDb, std::string(sql).c_str(), sql_len, &raw_stmt, nullptr);
+        std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> stmt(raw_stmt, &sqlite3_finalize);
+        if (rc != SQLITE_OK || !stmt) {
             detail::throw_sqlite(targetDb, "Iterate prepare failed");
         }
 
         IterateResult res;
-        try {
-            binder(targetDb, stmt);
-            int cols = sqlite3_column_count(stmt);
-            for (int i = 0; i < cols; ++i) {
-                const char* name = sqlite3_column_name(stmt, i);
-                res.columns.emplace_back(name ? name : "");
-            }
+        binder(targetDb, stmt.get());
+        int cols = sqlite3_column_count(stmt.get());
+        for (int i = 0; i < cols; ++i) {
+            const char* name = sqlite3_column_name(stmt.get(), i);
+            res.columns.emplace_back(name ? name : "");
+        }
 
-            while (true) {
-                if (opts.limit > 0 && res.rows.size() >= opts.limit) {
-                    int next_rc = sqlite3_step(stmt);
-                    if (next_rc == SQLITE_ROW) {
-                        res.truncated = true;
-                    }
-                    break;
-                }
-                rc = sqlite3_step(stmt);
-                if (rc == SQLITE_ROW) {
-                    res.rows.push_back(detail::row_to_json(stmt));
-                } else if (rc == SQLITE_DONE) {
-                    break;
-                } else {
+        while (true) {
+            if (opts.limit > 0 && res.rows.size() >= opts.limit) {
+                int next_rc = sqlite3_step(stmt.get());
+                if (next_rc == SQLITE_ROW) {
+                    res.truncated = true;
+                } else if (next_rc != SQLITE_DONE) {
                     detail::throw_sqlite(targetDb, "Iterate step failed");
                 }
+                break;
             }
-        } catch (...) {
-            sqlite3_finalize(stmt);
-            throw;
+            rc = sqlite3_step(stmt.get());
+            if (rc == SQLITE_ROW) {
+                res.rows.push_back(detail::row_to_json(stmt.get()));
+            } else if (rc == SQLITE_DONE) {
+                break;
+            } else {
+                detail::throw_sqlite(targetDb, "Iterate step failed");
+            }
         }
-        sqlite3_finalize(stmt);
         return res;
     }
 

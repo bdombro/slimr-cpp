@@ -8,8 +8,8 @@ Borrowed directly from the design of [`@slimr/sqlite`](https://www.npmjs.com/pac
 
 Raw C `sqlite3*` APIs require repetitive `sqlite3_prepare_v2` / `sqlite3_bind_*` / `sqlite3_step` / `sqlite3_finalize` boilerplate, manual statement caching, and careful pragma configuration. `slimr::sqlite` gives you a single-header C++26 `Database` class with production defaults out of the box:
 
-- **Production WAL defaults:** Automatically configures `PRAGMA busy_timeout = 5000`, `PRAGMA foreign_keys = ON`, `PRAGMA temp_store = MEMORY`, `PRAGMA journal_mode = WAL`, and `PRAGMA synchronous = NORMAL` on writable file databases.
-- **256-statement LRU cache:** Prepared `sqlite3_stmt*` handles are cached and automatically reset/unbound after each call, and evicted cleanly on `exec()` or destructor teardown.
+- **Production WAL defaults (verified on open):** Automatically configures and verifies `PRAGMA busy_timeout = 5000`, `PRAGMA foreign_keys = ON`, `PRAGMA temp_store = MEMORY`, and—for writable file databases—`PRAGMA journal_mode = WAL` and `PRAGMA synchronous = NORMAL`. Read-only connections also apply `busy_timeout`, `foreign_keys`, and `temp_store`.
+- **256-statement LRU cache:** Prepared `sqlite3_stmt*` handles are cached and automatically reset/unbound after each call, skipping active in-use statements during eviction. Single-row helpers (`get`, `pluck`) step only the first row.
 - **Positional & flexible named parameters:** Bind positional vectors (`{int64_t(1), "foo"}`) or named maps (`{{"name", "Alice"}}`) matching `:name`, `$name`, or `@name` placeholders in SQL.
 - **Unified `migrations` on open:** Pass either an ordered `std::vector<std::string>` (`1..N`) or a version-keyed `std::map<int, std::string>` (supporting squashed baselines and stale intermediate version guards).
 - **Safe read-only agent queries (`iterateLimited`):** Opens a separate `SQLITE_OPEN_READONLY` connection, registers custom scalar functions, executes optional `setupSql` (such as `TEMP VIEW` creation), locks down `PRAGMA query_only = ON`, and steps up to `limit + 1` rows to report `{ columns, rows, truncated }`.
@@ -59,11 +59,16 @@ auto emails = db.pluckAll<std::string>("SELECT email FROM users ORDER BY id ASC;
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `readonly` | `bool` | `false` | Open with `SQLITE_OPEN_READONLY` (skips write pragmas and migrations). |
-| `pragmas` | `std::optional<std::string>` | WAL + safe defaults | Custom pragma SQL executed after defaults, or `""` to skip extra pragmas. |
-| `disableDefaultPragmas` | `bool` | `false` | Set `true` to skip all default pragmas (`WAL`, `foreign_keys`, etc.). |
-| `migrations` | `std::variant<std::monostate, std::vector<std::string>, std::map<int, std::string>>` | `std::monostate{}` | Schema migrations tracked via `PRAGMA user_version` and executed atomically inside `BEGIN IMMEDIATE`. |
-| `functions` | `std::map<std::string, ScalarFunction>` | `{}` | Custom C++ scalar functions registered on open (and forwarded to `readOnlyConnection` in `iterateLimited`). |
+| `readOnly` | `bool` | `false` | Open with `SQLITE_OPEN_READONLY` (applies `busy_timeout`/`foreign_keys`/`temp_store` and custom `pragmas`; skips write pragmas and migrations). |
+| `enableDefaultPragmas` | `bool` | `true` | Apply and verify default `busy_timeout`, `foreign_keys`, `temp_store`, plus `WAL` + `synchronous=NORMAL` on writable file databases. |
+| `pragmas` | `std::optional<std::string>` | `std::nullopt` | Custom pragma SQL executed after defaults. |
+| `migrations` | `std::optional<std::variant<std::vector<std::string>, std::map<int, std::string>>>` | `std::nullopt` | Schema migrations tracked via `PRAGMA user_version` and executed atomically inside `BEGIN IMMEDIATE`. |
+
+## Concurrency & Durability Contract
+
+- **Durability (`WAL` + `synchronous=NORMAL`):** WAL protects database consistency across crashes, while `synchronous=NORMAL` trades strict fsync-per-commit durability for write performance—committed transactions on disk may be lost on OS crash or power failure. Use `pragmas = "PRAGMA synchronous = FULL;"` when per-commit power-loss durability is required.
+- **Thread safety:** Even when SQLite is built with `SQLITE_THREADSAFE != 0`, `slimr::Database` is **not** internally mutex-locked. Its C++ statement LRU cache and transaction depth (`tx_depth_`) are connection-local state. Synchronize every `Database` instance externally across **whole transactions** (not just single calls), or give each worker its own `Database` connection (`WAL` allows concurrent readers with one writer at a time, bounded by `busy_timeout = 5000`).
+- **Event loops:** Keep blocking SQLite queries and filesystem I/O off asynchronous networking event loops (such as `libhv` I/O threads); dispatch them onto bounded worker threads.
 
 ---
 

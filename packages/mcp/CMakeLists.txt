@@ -1,11 +1,25 @@
+find_package(libhv CONFIG QUIET)
+
 add_library(slimr_mcp INTERFACE)
 add_library(slimr::mcp ALIAS slimr_mcp)
 target_compile_features(slimr_mcp INTERFACE cxx_std_26)
 target_include_directories(slimr_mcp INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(slimr_mcp INTERFACE slimr::json slimr::reflect slimr::bugsink)
+
+if(TARGET libhv::hv_static)
+    add_library(slimr_mcp_http INTERFACE)
+    add_library(slimr::mcp_http ALIAS slimr_mcp_http)
+    target_compile_features(slimr_mcp_http INTERFACE cxx_std_26)
+    target_link_libraries(slimr_mcp_http INTERFACE slimr::mcp libhv::hv_static)
+endif()
+
 if(BUILD_TESTING)
     add_executable(mcp_test test.cpp)
     target_link_libraries(mcp_test PRIVATE slimr::mcp slimr::test slimr_options)
+    if(TARGET slimr::mcp_http)
+        target_link_libraries(mcp_test PRIVATE slimr::mcp_http)
+        target_compile_definitions(mcp_test PRIVATE SLIMR_MCP_HAS_HTTP=1)
+    endif()
     add_test(NAME mcp COMMAND mcp_test)
     set_tests_properties(mcp PROPERTIES TIMEOUT 120
         ENVIRONMENT "TMPDIR=${CMAKE_BINARY_DIR}/test-tmp")

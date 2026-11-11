@@ -48,6 +48,64 @@ There are no forwarding headers. Package-local CMake files declare source target
 
 Requires a C++26 compiler (verified with Apple clang 21), CMake 3.31+, Ninja, [just](https://just.systems) and [vcpkg](https://vcpkg.io) on PATH. The environment owns `VCPKG_ROOT` and `VCPKG_OVERLAY_PORTS=$VCPKG_ROOT/local-ports`; recipes do not supply defaults or overwrite them. Host triplets are detected, but Linux portability is not yet verified.
 
+### macOS: install and set up vcpkg
+
+Install [Homebrew](https://brew.sh) and current Xcode Command Line Tools
+(`xcode-select --install`; finish the installer before continuing), or full
+Xcode. Apple Clang 21 is the verified C++26/libc++ toolchain; older installations
+need upgrading. These instructions assume Apple Silicon Homebrew at `/opt/homebrew`.
+
+Add this environment snippet to `~/.zshrc`, then open a new terminal (or run
+`source ~/.zshrc`). Use `~/.zshrc`, not `~/.zshenv`, to avoid changing
+non-interactive zsh scripts:
+
+`local-ports` is the dedicated vcpkg overlay directory for local development
+linking: `just publish --local --all` registers symlinks to your slimr-cpp checkout,
+overriding published packages without making a registry release. See the
+[publishing guide](https://github.com/bdombro/slimr-cpp/blob/main/docs/publishing.md#local-environment).
+
+```bash
+export VCPKG_ROOT="$HOME/.local/share/vcpkg"
+export VCPKG_OVERLAY_PORTS="$VCPKG_ROOT/local-ports"
+export CXX="/usr/bin/clang++"
+export CLANG_TIDY="/opt/homebrew/opt/llvm/bin/clang-tidy"
+export PATH="$VCPKG_ROOT:/opt/homebrew/opt/ruby/bin:/opt/homebrew/bin:$PATH"
+```
+
+Then install and build from this repository's root:
+
+```bash
+brew install cmake ninja just llvm node ruby autoconf automake libtool pkgconf
+mkdir -p "$(dirname "$VCPKG_ROOT")"
+if [ ! -d "$VCPKG_ROOT/.git" ]; then
+  git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+fi
+"$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+just publish --local --all
+# Register the pinned native HTTP dependency separately.
+ln -s "$PWD/ports/libhv" "$VCPKG_OVERLAY_PORTS/libhv"
+"$CXX" --version
+vcpkg version
+BUGSINK_DSN="" just test
+just build
+```
+
+The libhv link is a one-time setup step. If it already exists, verify it points
+to this checkout's `ports/libhv` before skipping that command; do not replace a
+conflicting directory or modify installed headers/caches. The root build tests
+source targets; vcpkg supplies native SQLite/FTS5, WebSocket-enabled curl and
+libhv under `build/deps/`. Separate Homebrew installs of those libraries are
+not required. Local publication only registers overlays; it does not commit,
+push, or publish a registry release.
+
+Bootstrapping puts the executable at `$VCPKG_ROOT/vcpkg`, with no `bin/`
+subdirectory. Keg-only Homebrew Ruby supplies `/opt/homebrew/opt/ruby/bin/ruby`.
+Homebrew LLVM supplies `clang-tidy`; recipes explicitly default to the Apple
+compiler, regardless of `PATH`. Set `CXX` before first configure if selecting
+another compatible compiler; CMake caches the selection. To reproduce CI's
+vcpkg tooling, check out the tested full `VCPKG_REF` commit before bootstrapping.
+Package registry baselines and the vcpkg executable version are separate pins.
+
 A consumer declares only the packages it uses:
 
 ```json

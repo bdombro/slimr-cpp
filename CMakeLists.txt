@@ -86,6 +86,9 @@ if(BUILD_TESTING)
         slimr::test slimr::json slimr::reflect slimr::yaml slimr::sqlite
         slimr::curl slimr::bugsink slimr::ws slimr::mcp slimr::encoding
         slimr::proc slimr::time slimr::text)
+    if(TARGET slimr::mcp_http)
+        target_link_libraries(slimr_test PRIVATE slimr::mcp_http)
+    endif()
     add_test(NAME aggregate COMMAND slimr_test)
     set_tests_properties(aggregate PROPERTIES TIMEOUT 120
         ENVIRONMENT "TMPDIR=${CMAKE_BINARY_DIR}/test-tmp")
