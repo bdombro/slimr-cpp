@@ -1,15 +1,28 @@
 {
   "name": "slimr-sqlite",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Header-only SQLite wrapper with FTS5 support",
   "dependencies": [
-    "slimr-json",
-    {"name": "sqlite3", "features": ["fts5"]}
+    {
+      "name": "slimr-json",
+      "version>=": "0.1.1"
+    },
+    {
+      "name": "sqlite3",
+      "features": [
+        "fts5"
+      ]
+    }
   ],
   "features": {
     "tests": {
       "description": "Dependencies for the standalone test suite",
-      "dependencies": ["slimr-test"]
+      "dependencies": [
+        {
+          "name": "slimr-test",
+          "version>=": "0.1.1"
+        }
+      ]
     }
   }
 }

@@ -1,15 +1,28 @@
 {
   "name": "slimr-ws",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Header-only native libcurl WebSocket client",
   "dependencies": [
-    "slimr-json",
-    {"name": "curl", "features": ["websockets"]}
+    {
+      "name": "slimr-json",
+      "version>=": "0.1.1"
+    },
+    {
+      "name": "curl",
+      "features": [
+        "websockets"
+      ]
+    }
   ],
   "features": {
     "tests": {
       "description": "Dependencies for the standalone test suite",
-      "dependencies": ["slimr-test"]
+      "dependencies": [
+        {
+          "name": "slimr-test",
+          "version>=": "0.1.1"
+        }
+      ]
     }
   }
 }

@@ -1,11 +1,16 @@
 {
   "name": "slimr-encoding",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Header-only Base64, Base64url and hex encoding",
   "features": {
     "tests": {
       "description": "Dependencies for the standalone test suite",
-      "dependencies": ["slimr-test"]
+      "dependencies": [
+        {
+          "name": "slimr-test",
+          "version>=": "0.1.1"
+        }
+      ]
     }
   }
 }

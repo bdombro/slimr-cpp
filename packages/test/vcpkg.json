@@ -1,6 +1,6 @@
 {
   "name": "slimr-test",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Header-only doctest runner and temporary directory fixtures",
   "features": {
     "tests": {

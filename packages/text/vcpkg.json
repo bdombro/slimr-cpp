@@ -1,11 +1,16 @@
 {
   "name": "slimr-text",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Header-only UTF-8 sanitization and readable HTML conversion",
   "features": {
     "tests": {
       "description": "Dependencies for the standalone test suite",
-      "dependencies": ["slimr-test"]
+      "dependencies": [
+        {
+          "name": "slimr-test",
+          "version>=": "0.1.1"
+        }
+      ]
     }
   }
 }

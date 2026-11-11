@@ -1,12 +1,30 @@
 {
   "name": "slimr-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Header-only typed MCP servers and JSON CLIs",
-  "dependencies": ["slimr-json", "slimr-reflect", "slimr-bugsink"],
+  "dependencies": [
+    {
+      "name": "slimr-json",
+      "version>=": "0.1.1"
+    },
+    {
+      "name": "slimr-reflect",
+      "version>=": "0.1.1"
+    },
+    {
+      "name": "slimr-bugsink",
+      "version>=": "0.1.1"
+    }
+  ],
   "features": {
     "tests": {
       "description": "Dependencies for the standalone test suite",
-      "dependencies": ["slimr-test"]
+      "dependencies": [
+        {
+          "name": "slimr-test",
+          "version>=": "0.1.1"
+        }
+      ]
     }
   }
 }
