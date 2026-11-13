@@ -9,7 +9,8 @@ Inspired by the ergonomics of TypeScript/Node [`@slimr`](https://github.com/bdom
 > **Audience and compatibility:** this is a developer library, not an installed
 > end-user MCP service. Current MCP source supports **2026-07-28 only** and has
 > no Gateway or legacy initialize API. The published registry baseline below
-> is an older package release, not proof that July HTTP packages are published.
+> includes July HTTP support in `slimr-mcp` `0.1.2`; see the
+> [publication verification scope](docs/publishing.md).
 
 
 ## Packages
@@ -100,7 +101,7 @@ A consumer declares only the packages it uses:
 
 `slimr-sqlite` brings in JSON and FTS5-enabled SQLite, not unrelated MCP, HTTP, YAML, or test libraries. WebSocket consumers explicitly request curl's `websockets` feature. Package tests use an optional `tests` feature, keeping doctest out of production dependency closures.
 
-All thirteen packages are published: `slimr-proc` is `0.1.2`, and the others are `0.1.1`. No manual slimr-cpp checkout is needed: add this `vcpkg-configuration.json` alongside the app manifest:
+All thirteen packages are published: `slimr-mcp` and `slimr-proc` are `0.1.2`, and the others are `0.1.1`. No manual slimr-cpp checkout is needed for registry package sources: add this `vcpkg-configuration.json` alongside the app manifest:
 
 ```json
 {
@@ -111,13 +112,16 @@ All thirteen packages are published: `slimr-proc` is `0.1.2`, and the others are
   "registries": [{
     "kind": "git",
     "repository": "https://github.com/bdombro/slimr-cpp.git",
-    "baseline": "91b48cf91739dc622f97c6dd8f0c0f54c367ce43",
+    "baseline": "202123aff51c36bac83cd6b02539d415cbdf61d0",
     "packages": ["slimr-*"]
   }]
 }
 ```
 
-Run `vcpkg install` with `VCPKG_OVERLAY_PORTS` unset to use published packages. This baseline predates the July HTTP changes: current `slimr-mcp[http]` consumers need the local-development setup until those changes are published in a new registry baseline.
+Run `vcpkg install` without local `slimr-*` overlays to use published packages.
+This baseline includes `slimr-mcp[http]`; its native libhv dependency still requires
+a compatible port (validated against libhv 1.3.4). Fresh downstream resolution
+against this registry baseline has not yet been verified.
 
 ### Usage example: MCP + SQLite
 
@@ -163,8 +167,8 @@ CMake does not install a second time. Local source edits are refreshed through
 
 ## Troubleshooting
 
-- **HTTP feature missing:** the old registry baseline predates July HTTP.
-  Use a matching local checkout and overlay, not a source include override.
+- **HTTP feature missing:** older registry baselines predate July HTTP.
+  Update to the baseline above or use matching local overlays, not a source include override.
 - **Port not found:** verify `VCPKG_ROOT`, `VCPKG_OVERLAY_PORTS` and the local
   links. The pinned libhv overlay is registered separately.
 - **Compiler or hardening check fails:** use current Xcode/Apple Clang 21,

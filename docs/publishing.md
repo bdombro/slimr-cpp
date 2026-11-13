@@ -2,7 +2,25 @@
 
 The thirteen flat `packages/<key>/` trees are independently consumable vcpkg overlay ports. Each contains its manifest, header, CMake config, ISC license, and any owned vendor files. Original code is ISC; bundled upstream notices remain in the distributed vendor headers/licenses.
 
-All thirteen packages are published in the public Git registry. Baseline `91b48cf91739dc622f97c6dd8f0c0f54c367ce43`, source commit `bdf5b5c786aec6dc5aae5c0d54561667529dcc97`, contains `slimr-proc` `0.1.2` and the other packages at `0.1.1`. Releases passed Debug, Release and lint checks before version writes. The real Brave history MCP resolved, built and passed tests against both registry baselines with local overlays disabled. See the [consumer configuration](../README.md#dependencies).
+All thirteen packages are published in the public Git registry. Current baseline
+`202123aff51c36bac83cd6b02539d415cbdf61d0` includes `slimr-mcp` `0.1.2`
+(source commit `c65de9cc08c24a53fc1e1e937bcac44da8e3da99`) with July HTTP
+support and the libhv 1.3.4 shutdown fix. `slimr-proc` remains `0.1.2`; the
+other packages remain `0.1.1`. The MCP release passed Debug, Release and lint
+checks before version writes, and its registry push was confirmed.
+
+Verification scope: the Gdocsmith application built in Debug and Release and
+passed stdio/ephemeral HTTP discovery against the local overlay before release.
+That does not establish fresh downstream resolution against the new registry
+baseline; native libhv port availability must also be checked for the consumer's
+builtin-registry pin.
+
+Historical baseline `91b48cf91739dc622f97c6dd8f0c0f54c367ce43`, source commit
+`bdf5b5c786aec6dc5aae5c0d54561667529dcc97`, predates July HTTP and contains
+MCP `0.1.1`. Its releases passed Debug, Release and lint checks, and the real
+Brave history MCP resolved, built and passed tests against the historical
+registry baselines with local overlays disabled. See the
+[consumer configuration](../README.md#dependencies).
 
 ## One publishing entry point
 
