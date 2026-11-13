@@ -646,6 +646,28 @@ RawHttpReply http_exchange(uint16_t port,
     return parse_http_reply(rawResp);
 }
 
+std::string read_http_message(int fd) {
+    std::string raw;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline) {
+        pollfd pfd{fd, POLLIN, 0};
+        if (::poll(&pfd, 1, 50) < 0) break;
+        if (!(pfd.revents & (POLLIN | POLLHUP))) continue;
+        char buf[8192];
+        const auto n = ::recv(fd, buf, sizeof(buf), 0);
+        if (n <= 0) break;
+        raw.append(buf, static_cast<size_t>(n));
+        if (raw.find("\r\n\r\n") == std::string::npos) continue;
+        const auto reply = parse_http_reply(raw);
+        if (reply.headers.contains("transfer-encoding")) {
+            if (raw.ends_with("\r\n0\r\n\r\n")) break;
+        } else if (auto it = reply.headers.find("content-length"); it != reply.headers.end()) {
+            if (reply.body.size() == std::stoull(it->second)) break;
+        }
+    }
+    return raw;
+}
+
 std::vector<std::pair<std::string, std::string>> mcp_headers(
     std::string_view method,
     std::string_view mcpName = "",
@@ -1164,6 +1186,142 @@ TEST_SUITE("MCP Streamable HTTP & OAuth") {
         srv.stop();
     }
 
+    TEST_CASE("HTTP shutdown delivers natural JSON and SSE completion and rejects new admissions") {
+        for (const bool stream : {false, true}) {
+            CAPTURE(stream);
+            PluginApp app("natural-stop");
+            std::atomic<bool> started{false};
+            std::atomic<bool> release{false};
+            std::atomic<bool> cancelled{false};
+            const std::string payload(256 * 1024, 'x');
+            app.tool<std::monostate>(
+                "finish", "Completes during shutdown", ToolOptions{.threadSafe = true},
+                [&](const std::monostate&, const RequestContext& ctx) {
+                    if (stream) ctx.emitProgress(1, 2, "started");
+                    started.store(true);
+                    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+                    while (!release.load() && std::chrono::steady_clock::now() < deadline) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    }
+                    cancelled.store(ctx.cancellation.isCancelled());
+                    return payload;
+                });
+            HttpServerOptions opts;
+            opts.allowEphemeralPort = true;
+            opts.shutdownTimeoutMs = 2000;
+            opts.sseMaxWriteBufBytes = 1024 * 1024;
+            McpHttpServer srv(app, opts);
+            std::string err;
+            REQUIRE(srv.start(&err));
+            const auto port = srv.boundPort();
+            REQUIRE(port != 0);
+
+            TcpFd probe = connect_loopback(port);
+            REQUIRE(probe.fd >= 0);
+            auto headers = mcp_headers("server/discover");
+            headers.emplace_back("Connection", "keep-alive");
+            const auto discovery = build_http_request(
+                "POST", "/mcp", port, headers, slimr::write_json(make_req(1, "server/discover")));
+            REQUIRE(send_all(probe.fd, discovery));
+            REQUIRE(parse_http_reply(read_http_message(probe.fd)).status == 200);
+
+            TcpFd conn = connect_loopback(port);
+            REQUIRE(conn.fd >= 0);
+            Json params = json_obj();
+            params["name"] = "finish";
+            params["arguments"] = json_obj();
+            auto req = make_req(42, "tools/call", params);
+            if (stream) req["params"]["_meta"]["progressToken"] = "natural-stop";
+            REQUIRE(send_all(conn.fd, build_http_request(
+                "POST", "/mcp", port, mcp_headers("tools/call", "finish"), slimr::write_json(req))));
+            for (int i = 0; i < 1000 && !started.load(); ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            REQUIRE(started.load());
+
+            std::jthread stopping([&]() { srv.stop(); });
+            int admissionStatus = 0;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+            while (std::chrono::steady_clock::now() < deadline) {
+                if (!send_all(probe.fd, discovery)) break;
+                admissionStatus = parse_http_reply(read_http_message(probe.fd)).status;
+                if (admissionStatus != 200) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            CHECK(admissionStatus == 503);
+            TcpFd refused;
+            do {
+                refused = connect_loopback(port);
+                if (refused.fd < 0) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            } while (std::chrono::steady_clock::now() < deadline);
+            CHECK(refused.fd < 0);
+            release.store(true);
+            const auto raw = read_http_message(conn.fd);
+            stopping.join();
+            CHECK_FALSE(cancelled.load());
+            const auto reply = parse_http_reply(raw);
+            CHECK(reply.status == 200);
+            if (stream) {
+                CHECK(reply.headers.at("content-type") == "text/event-stream");
+                CHECK(raw.ends_with("\r\n0\r\n\r\n"));
+                const auto lastEvent = reply.body.rfind("data: ");
+                REQUIRE(lastEvent != std::string::npos);
+                const auto final = parse_json<Json>(reply.body.substr(lastEvent + 6));
+                REQUIRE(final.has_value());
+                CHECK((*final)["id"].get<int64_t>() == 42);
+                CHECK((*final)["result"]["content"][0]["text"].get<std::string>() == payload);
+            } else {
+                CHECK(reply.body.size() == std::stoull(reply.headers.at("content-length")));
+                const auto final = parse_json<Json>(reply.body);
+                REQUIRE(final.has_value());
+                CHECK((*final)["id"].get<int64_t>() == 42);
+                CHECK((*final)["result"]["content"][0]["text"].get<std::string>() == payload);
+            }
+            CHECK(srv.boundPort() == 0);
+            srv.stop();
+            REQUIRE(srv.start(&err));
+            CHECK(http_exchange(srv.boundPort(), "POST", "/mcp", mcp_headers("server/discover"),
+                                slimr::write_json(make_req(2, "server/discover"))).status == 200);
+            srv.stop();
+        }
+    }
+
+    TEST_CASE("HTTP shutdown bounds flushing when a client stops reading") {
+        PluginApp app("slow-shutdown");
+        const std::string payload(8 * 1024 * 1024, 'x');
+        app.tool<std::monostate>("large", "Produces a buffered response",
+                                [&](const std::monostate&) { return payload; });
+        HttpServerOptions opts;
+        opts.allowEphemeralPort = true;
+        opts.shutdownTimeoutMs = 0;
+        opts.sseMaxWriteBufBytes = 16 * 1024 * 1024;
+        McpHttpServer srv(app, opts);
+        std::string err;
+        REQUIRE(srv.start(&err));
+        TcpFd conn = connect_loopback(srv.boundPort());
+        REQUIRE(conn.fd >= 0);
+        const int receiveBuffer = 4096;
+        REQUIRE(::setsockopt(conn.fd, SOL_SOCKET, SO_RCVBUF, &receiveBuffer, sizeof(receiveBuffer)) == 0);
+        Json params = json_obj();
+        params["name"] = "large";
+        params["arguments"] = json_obj();
+        REQUIRE(send_all(conn.fd, build_http_request(
+            "POST", "/mcp", srv.boundPort(), mcp_headers("tools/call", "large"),
+            slimr::write_json(make_req(1, "tools/call", params)))));
+        pollfd ready{conn.fd, POLLIN, 0};
+        REQUIRE(::poll(&ready, 1, 3000) > 0);
+        char header[128]{};
+        const auto n = ::recv(conn.fd, header, sizeof(header), MSG_PEEK);
+        REQUIRE(n > 0);
+        REQUIRE(std::string_view(header, static_cast<size_t>(n)).starts_with("HTTP/1.1 200"));
+        const auto start = std::chrono::steady_clock::now();
+        srv.stop();
+        const auto elapsed = std::chrono::steady_clock::now() - start;
+        CHECK(elapsed >= std::chrono::milliseconds(40));
+        CHECK(elapsed < std::chrono::seconds(2));
+    }
+
     TEST_CASE("enable_http CLI validation and graceful stop on active SSE stream") {
         // 1) CLI validation errors return non-zero cleanly
         {
@@ -1188,6 +1346,7 @@ TEST_SUITE("MCP Streamable HTTP & OAuth") {
         PluginApp app("graceful-app", "1.0.0");
         std::atomic<bool> started{false};
         std::atomic<bool> cancelled{false};
+        std::atomic<int> queuedCalls{0};
 
         app.tool<std::monostate>(
             "hang_stream",
@@ -1202,12 +1361,20 @@ TEST_SUITE("MCP Streamable HTTP & OAuth") {
                 cancelled.store(true);
                 return "cancelled";
             });
+        app.tool<std::monostate>(
+            "queued", "Must not run after the shutdown deadline", ToolOptions{.threadSafe = true},
+            [&](const std::monostate&) {
+                queuedCalls.fetch_add(1);
+                return "unexpected";
+            });
 
         HttpServerOptions opts;
         opts.host = "127.0.0.1";
         opts.port = 0;
         opts.allowEphemeralPort = true;
         opts.shutdownTimeoutMs = 200;
+        opts.workerThreads = 1;
+        opts.maxPendingJobs = 1;
 
         McpHttpServer srv(app, opts);
         std::string err;
@@ -1232,12 +1399,30 @@ TEST_SUITE("MCP Streamable HTTP & OAuth") {
         }
         REQUIRE(started.load() == true);
 
+        TcpFd pending = connect_loopback(port);
+        TcpFd overflow = connect_loopback(port);
+        REQUIRE(pending.fd >= 0);
+        REQUIRE(overflow.fd >= 0);
+        p["name"] = "queued";
+        const auto queuedRequest = build_http_request(
+            "POST", "/mcp", port, mcp_headers("tools/call", "queued"),
+            slimr::write_json(make_req(100, "tools/call", p)));
+        REQUIRE(send_all(pending.fd, queuedRequest));
+        REQUIRE(send_all(overflow.fd, queuedRequest));
+        // Whichever request arrives second must see a full queue, proving
+        // another job is pending behind the active stream before stop().
+        pollfd ready[]{{pending.fd, POLLIN, 0}, {overflow.fd, POLLIN, 0}};
+        REQUIRE(::poll(ready, 2, 1000) > 0);
+        const int rejected = (ready[0].revents & POLLIN) ? pending.fd : overflow.fd;
+        CHECK(parse_http_reply(read_http_message(rejected)).status == 503);
+
         const auto t0 = std::chrono::steady_clock::now();
         srv.stop();
         const auto elapsedMs =
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
 
         CHECK(cancelled.load() == true);
+        CHECK(queuedCalls.load() == 0);
         CHECK(elapsedMs < 2000);
     }
 }

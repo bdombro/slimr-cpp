@@ -11,10 +11,10 @@ if(NOT TARGET slimr::mcp)
 endif()
 
 find_package(libhv CONFIG QUIET)
-if(TARGET libhv::hv_static AND NOT TARGET slimr::mcp_http)
+if(TARGET hv_static AND NOT TARGET slimr::mcp_http)
     add_library(slimr::mcp_http INTERFACE IMPORTED)
     set_target_properties(slimr::mcp_http PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../include"
         INTERFACE_COMPILE_FEATURES cxx_std_26
-        INTERFACE_LINK_LIBRARIES "slimr::mcp;libhv::hv_static")
+        INTERFACE_LINK_LIBRARIES "slimr::mcp;hv_static")
 endif()

@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
@@ -30,6 +31,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -57,6 +59,14 @@ struct HttpServerOptions {
 };
 
 namespace mcp_detail {
+
+struct HttpListenSocket {
+    int fd{-1};
+    explicit HttpListenSocket(int value) : fd(value) {}
+    HttpListenSocket(const HttpListenSocket&) = delete;
+    HttpListenSocket& operator=(const HttpListenSocket&) = delete;
+    ~HttpListenSocket() { if (fd >= 0) ::close(fd); }
+};
 
 inline bool is_valid_ip_literal(std::string_view host, bool* isIpv6 = nullptr, bool* isLoopback = nullptr) {
     if (host.empty() || host.size() >= 64) return false;
@@ -362,6 +372,17 @@ public:
         // Reject oversized Content-Length before reading large bodies.
         service_->headerHandler = http_ctx_handler([this](const HttpContextPtr& c) -> int {
             try {
+                std::erase_if(responseWriters_, [](const auto& w) { return w.expired(); });
+                if (std::ranges::none_of(responseWriters_, [&](const auto& w) {
+                        return w.lock() == c->writer;
+                    })) {
+                    responseWriters_.push_back(c->writer);
+                }
+                if (draining_.load(std::memory_order_acquire)) {
+                    sendResponse(c->writer, 503, "application/json", "{\"error\":\"server_stopping\"}",
+                                 {{"Connection", "close"}});
+                    return HTTP_STATUS_UNFINISHED;
+                }
                 std::string cl = c->header("Content-Length");
                 if (!cl.empty()) {
                     char* endPtr = nullptr;
@@ -433,6 +454,20 @@ public:
         server_->setThreadNum(1);
         server_->setMaxWorkerConnectionNum(opts_.maxConnections);
 
+        // libhv only binds positive ports itself. Transfer an ephemeral listener
+        // to its event loop on successful start; retain ownership on failure.
+        mcp_detail::HttpListenSocket listener(opts_.port == 0 ? Listen(0, opts_.host.c_str()) : -1);
+        if (opts_.port == 0) {
+            if (listener.fd < 0) {
+                server_.reset();
+                service_.reset();
+                if (errOut) *errOut = "Failed to bind ephemeral HTTP listener on " + opts_.host;
+                return false;
+            }
+            server_->setListenFD(listener.fd);
+        }
+
+        draining_.store(false, std::memory_order_release);
         startWorkers();
 
         if (server_->start() != 0) {
@@ -444,6 +479,7 @@ public:
             }
             return false;
         }
+        listener.fd = -1;
 
         std::shared_ptr<hv::EventLoop> loop;
         while (!(loop = server_->loop(0)) || !loop->isRunning()) {
@@ -478,13 +514,24 @@ public:
             return;
         }
 
-        if (server_) {
-            server_->stopAccept();
-        }
+        draining_.store(true, std::memory_order_release);
         {
             std::lock_guard lock(workerState_->mu);
             workerState_->rejectNew = true;
         }
+        auto loop = loop_.lock();
+        callOnLoop(loop, [this, loop]() {
+            // This server has one I/O loop. hio_close releases its listener;
+            // http_server_stop owns loop/thread teardown, not a second fd close.
+            for (int& fd : server_->listenfd) {
+                if (fd >= 0) {
+                    if (hio_close(hio_get(loop->loop(), fd)) != 0) {
+                        throw std::runtime_error("Failed to close HTTP listener");
+                    }
+                    fd = -1;
+                }
+            }
+        });
 
         // Wait up to shutdownTimeoutMs for natural completion of in-flight jobs before cancelling.
         auto deadline = std::chrono::steady_clock::now() +
@@ -502,10 +549,27 @@ public:
         stopWorkers(false);
 
         if (server_) {
-            int remMs = std::max(50, std::min(500, opts_.shutdownTimeoutMs));
-            server_->gracefulStop(remMs);
+            const auto flushDeadline = std::chrono::steady_clock::now() +
+                std::chrono::milliseconds(std::clamp(opts_.shutdownTimeoutMs, 50, 500));
+            // The first loop barrier also executes final-response callbacks
+            // queued by workers before they exited, even with no buffered data.
+            while (!callOnLoop(loop, [this]() {
+                return std::ranges::none_of(responseWriters_, [](const auto& weak) {
+                    auto w = weak.lock();
+                    return w && w->id() == hio_id(w->io()) &&
+                           hio_is_opened(w->io()) && !w->isWriteComplete();
+                });
+            })) {
+                if (std::chrono::steady_clock::now() >= flushDeadline) {
+                    std::cerr << "MCP HTTP shutdown: response flush timed out; closing pending connections\n";
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            server_->stop();
             server_.reset();
         }
+        responseWriters_.clear();
         loop_.reset();
         service_.reset();
         boundPort_.store(0, std::memory_order_release);
@@ -535,6 +599,14 @@ public:
     }
 
 private:
+    template<class Fn>
+    static std::invoke_result_t<Fn> callOnLoop(const std::shared_ptr<hv::EventLoop>& loop, Fn fn) {
+        auto task = std::make_shared<std::packaged_task<std::invoke_result_t<Fn>()>>(std::move(fn));
+        auto result = task->get_future();
+        loop->queueInLoop([task]() { (*task)(); });
+        return result.get();
+    }
+
     struct WorkerState {
         std::mutex mu;
         std::condition_variable cv;
@@ -1176,12 +1248,14 @@ private:
     HttpServerOptions opts_;
     bool isLoopbackBind_{true};
     std::atomic<bool> running_{false};
+    std::atomic<bool> draining_{false};
     std::atomic<uint16_t> boundPort_{0};
     std::unique_ptr<hv::HttpService> service_;
     std::unique_ptr<hv::HttpServer> server_;
     std::weak_ptr<hv::EventLoop> loop_;
     std::shared_ptr<WorkerState> workerState_;
     std::vector<std::thread> workers_;
+    std::vector<std::weak_ptr<hv::HttpResponseWriter>> responseWriters_;
 };
 
 /** Attaches standalone `http [--host <addr>] [--port <n>] [--allow-ephemeral-port]` subcommand to PluginApp. */

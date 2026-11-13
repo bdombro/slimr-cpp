@@ -92,6 +92,24 @@ int main(int argc, char** argv) {
 - **Authorization Server ownership:** `packages/mcp` deliberately does **not** ship a hosted IdP, credential broker, or database persistence. Applications needing an authorization flow (consent/pairing UI, PKCE token issuance) mount explicit routes via `HttpServerOptions::customRoutes` or point `authorizationServers` to an external AS.
 - **HTTP server defaults:** Loopback-only bind by default (`127.0.0.1` / `::1`, refusing port `0` unless `allowEphemeralPort = true`), strict `Host` and `Origin` `403` checks against DNS rebinding, static serving disabled, bounded worker threads/queue (`503` on saturation while keeping fast `server/discover` responsive), `maxBodyBytes` `413` enforcement, and incremental chunked SSE with bounded backpressure (`sseHighWaterBytes`) and cooperative `shutdownTimeoutMs` drain.
 
+### HTTP shutdown
+
+Call `McpHttpServer::stop()` from the owning thread, outside handlers/event-loop callbacks.
+Lifecycle calls (`start()`/`stop()`/destruction) must not run concurrently.
+Shutdown closes the listener and rejects new requests on existing connections with
+`503`, including discovery and custom routes. Already admitted jobs have up to
+`shutdownTimeoutMs` (negative values mean zero) to finish naturally. Remaining
+queued and active jobs receive cooperative cancellation; cancelled queued handlers
+are not invoked. Cancelled requests are closed without a final response.
+
+Workers are joined while the I/O loop remains alive. A loop barrier processes their
+final-response callbacks, then buffered writes get an additional 50–500 ms to
+drain (`shutdownTimeoutMs` clamped to that range). A flush timeout is reported to
+stderr before remaining connections are closed. Flushing means handing bytes to
+the socket, not confirming client receipt. Handlers must observe cancellation and
+return: the grace period is **not** a hard bound on `stop()` because workers are
+never detached or forcibly terminated.
+
 ---
 
 ## Cheat Sheet
@@ -114,6 +132,9 @@ This folder owns its headers, `test.cpp`, CMake target/config, manifest, port re
 ```bash
 just test-pkg mcp  # Automatic native deps + ASan/UBSan
 just build-pkg mcp # Optimized Release build + tests
+just lint-pkg mcp  # Analyze the HTTP-enabled test translation unit
 ```
 
-Stdio-only consumers link `slimr::mcp`; HTTP/OAuth servers enable the `"http"` feature in `vcpkg.json` (`{"name": "slimr-mcp", "features": ["http"]}`) and link `slimr::mcp_http` (which pulls `libhv::hv_static`).
+Stdio-only consumers link `slimr::mcp`; HTTP/OAuth servers enable the `"http"` feature in `vcpkg.json` (`{"name": "slimr-mcp", "features": ["http"]}`) and link `slimr::mcp_http` (which pulls libhv's `hv_static` target).
+Source test configurations require libhv and its `hv_static` target so HTTP tests
+cannot silently disappear. The shutdown implementation uses libhv 1.3.4 APIs.
